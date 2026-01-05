@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nova Proxy</title>
+    <!-- Scramjet scripts -->
+    <script src="/scram/scramjet.all.js"></script>
+    <script src="/baremux/index.js"></script>
     <style>
         * {
             margin: 0;
@@ -211,41 +214,9 @@
             </button>
         </div>
     </div>
-    <script src="/scramjet.codecs.js"></script>
-    <script src="/scramjet.config.js"></script>
-    <script src="/scramjet.bundle.js"></script>
-    <script src="/scramjet.client.js" type="module"></script>
-    <script src="/client.js" type="module"></script>
+    <!-- Client script handles all proxy logic -->
+    <script src="/client.js"></script>
     <script>
-        function loadUrl() {
-            const input = document.getElementById('url-input').value.trim();
-            if (!input) return;
-            
-            const container = document.getElementById('container');
-            const iframe = document.getElementById('proxy-frame');
-            
-            let url;
-            // Check if input looks like a URL
-            if (input.includes('.') && !input.includes(' ') && (input.startsWith('http://') || input.startsWith('https://') || input.match(/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/))) {
-                // It's a URL
-                url = input.startsWith('http') ? input : 'https://' + input;
-            } else {
-                // It's a search query - use DuckDuckGo
-                url = 'https://duckduckgo.com/?q=' + encodeURIComponent(input);
-            }
-            
-            iframe.src = url;
-            container.classList.add('iframe-active');
-        }
-        
-        function goHome() {
-            const container = document.getElementById('container');
-            const iframe = document.getElementById('proxy-frame');
-            iframe.src = '';
-            container.classList.remove('iframe-active');
-            document.getElementById('url-input').value = '';
-        }
-        
         // Allow Enter key to submit
         document.getElementById('url-input').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
