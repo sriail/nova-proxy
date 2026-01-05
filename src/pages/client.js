@@ -64,7 +64,7 @@ async function loadProxiedUrl(url) {
     throw err;
   }
 
-  // Set up Epoxy transport with Wisp
+  // Set up libcurl transport with Wisp
   const wispUrl =
     (location.protocol === "https:" ? "wss" : "ws") +
     "://" +
@@ -72,8 +72,8 @@ async function loadProxiedUrl(url) {
     "/wisp/";
 
   const currentTransport = await connection.getTransport();
-  if (currentTransport !== "/epoxy/index.mjs") {
-    await connection.setTransport("/epoxy/index.mjs", [{ wisp: wispUrl }]);
+  if (currentTransport !== "/libcurl/index.mjs") {
+    await connection.setTransport("/libcurl/index.mjs", [{ websocket: wispUrl }]);
   }
 
   const container = document.getElementById("container");
