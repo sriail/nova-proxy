@@ -1,227 +1,301 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Nova Proxy</title>
     <!-- Scramjet scripts -->
     <script src="/scram/scramjet.all.js"></script>
     <script src="/baremux/index.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: white;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .container {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 2rem;
-            transition: all 0.3s ease;
-        }
-        .container.iframe-active {
-            padding: 0;
-        }
-        .home-content {
-            text-align: center;
-            max-width: 600px;
-            width: 100%;
-        }
-        .logo {
-            margin-bottom: 2rem;
-        }
-        .logo svg {
-            width: 80px;
-            height: 80px;
-            stroke: black;
-        }
-        h1 {
-            color: black;
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            font-weight: 700;
-        }
-        .subtitle {
-            color: rgba(0, 0, 0, 0.7);
-            font-size: 1.1rem;
-            margin-bottom: 2rem;
-        }
-        .search-container {
-            background: white;
-            border-radius: 50px;
-            padding: 0.5rem 1.5rem;
-            display: flex;
-            align-items: center;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-            margin-bottom: 1rem;
-            border: 2px solid #e0e0e0;
-        }
-        .search-icon {
-            margin-right: 1rem;
-        }
-        .search-icon svg {
-            width: 24px;
-            height: 24px;
-            stroke: black;
-        }
-        #url-input {
-            border: none;
-            outline: none;
-            flex: 1;
-            font-size: 1.1rem;
-            padding: 0.75rem 0;
-        }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: white;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+        transition: all 0.3s ease;
+      }
+      .container.iframe-active {
+        padding: 0;
+      }
+      .home-content {
+        text-align: center;
+        max-width: 600px;
+        width: 100%;
+      }
+      .logo {
+        margin-bottom: 1rem;
+      }
+      .logo svg {
+        width: 92px;
+        height: 92px;
+        stroke: black;
+        color: black;
+      }
+      h1 {
+        color: black;
+        font-size: 3rem;
+        margin-bottom: 0.5rem;
+        font-weight: 700;
+      }
+      .subtitle {
+        color: rgba(0, 0, 0, 0.7);
+        font-size: 1.1rem;
+        margin-bottom: 1.5rem;
+      }
+      .search-container {
+        background: white;
+        border-radius: 50px;
+        padding: 0.5rem 1.5rem;
+        display: flex;
+        align-items: center;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        margin-bottom: 1rem;
+        border: 2px solid #e0e0e0;
+      }
+      .search-icon {
+        margin-right: 1rem;
+      }
+      .search-icon svg {
+        width: 24px;
+        height: 24px;
+        stroke: black;
+      }
+      #url-input {
+        border: none;
+        outline: none;
+        flex: 1;
+        font-size: 1.1rem;
+        padding: 0.75rem 0;
+      }
 
-        .features {
-            display: flex;
-            gap: 2rem;
-            margin-top: 3rem;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-        .feature {
-            color: black;
-            text-align: center;
-            opacity: 0.8;
-        }
-        .feature svg {
-            width: 32px;
-            height: 32px;
-            stroke: black;
-            margin-bottom: 0.5rem;
-        }
-        .feature-text {
-            font-size: 0.9rem;
-        }
-        #proxy-frame {
-            display: none;
-            width: 100%;
-            height: 100vh;
-            border: none;
-        }
-        .iframe-active #proxy-frame {
-            display: block;
-        }
-        .iframe-active .home-content {
-            display: none;
-        }
-        .controls {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            display: none;
-            gap: 0.5rem;
-            z-index: 1000;
-        }
-        .iframe-active .controls {
-            display: flex;
-        }
-        .control-btn {
-            background: white;
-            border: 2px solid #e0e0e0;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: transform 0.2s;
-        }
-        .control-btn:hover {
-            transform: scale(1.1);
-            background: #f5f5f5;
-        }
-        .control-btn svg {
-            width: 20px;
-            height: 20px;
-            stroke: black;
-        }
+      .features {
+        display: flex;
+        gap: 2rem;
+        margin-top: 3rem;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .feature {
+        color: black;
+        text-align: center;
+        opacity: 0.8;
+      }
+      .feature svg {
+        width: 32px;
+        height: 32px;
+        stroke: black;
+        margin-bottom: 0.5rem;
+      }
+      .feature-text {
+        font-size: 0.9rem;
+      }
+      #proxy-frame {
+        display: none;
+        width: 100%;
+        height: 100vh;
+        border: none;
+      }
+      .iframe-active #proxy-frame {
+        display: block;
+      }
+      .iframe-active .home-content {
+        display: none;
+      }
+      .controls {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        display: none;
+        gap: 0.5rem;
+        z-index: 1000;
+      }
+      .iframe-active .controls {
+        display: flex;
+      }
+      .control-btn {
+        background: white;
+        border: 2px solid #e0e0e0;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        cursor: pointer;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.2s;
+      }
+      .control-btn:hover {
+        transform: scale(1.1);
+        background: #f5f5f5;
+      }
+      .control-btn svg {
+        width: 20px;
+        height: 20px;
+        stroke: black;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container" id="container">
-        <div class="home-content">
-            <div class="logo">
-                <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-shield-lock" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                    <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                    <path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3" />
-                    <path d="M12 11m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
-                    <path d="M12 12l0 2.5" />
-                </svg>
-            </div>
-            <h1>Nova</h1>
-            
-            <div class="search-container">
-                <div class="search-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-search" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                        <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                        <path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
-                        <path d="M21 21l-6 -6" />
-                    </svg>
-                </div>
-                <input type="text" id="url-input" placeholder="Search or enter URL..." />
-            </div>
-            <div class="features">
-                <div class="feature">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-bolt" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                        <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                        <path d="M13 3l0 7l6 0l-8 11l0 -7l-6 0l8 -11" />
-                    </svg>
-                    <div class="feature-text">Fast</div>
-                </div>
-                <div class="feature">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-lock" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                        <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                        <path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6z" />
-                        <path d="M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0" />
-                        <path d="M8 11v-4a4 4 0 1 1 8 0v4" />
-                    </svg>
-                    <div class="feature-text">Secure</div>
-                </div>
-                <div class="feature">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-eye-off" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                        <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                        <path d="M10.585 10.587a2 2 0 0 0 2.829 2.828" />
-                        <path d="M16.681 16.673a8.717 8.717 0 0 1 -4.681 1.327c-3.6 0 -6.6 -2 -9 -6c1.272 -2.12 2.712 -3.678 4.32 -4.674m2.86 -1.146a9.055 9.055 0 0 1 1.82 -.18c3.6 0 6.6 2 9 6c-.666 1.11 -1.379 2.067 -2.138 2.87" />
-                        <path d="M3 3l18 18" />
-                    </svg>
-                    <div class="feature-text">Private</div>
-                </div>
-            </div>
+      <div class="home-content">
+        <div class="logo">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="92"
+            height="92"
+            viewBox="0 0 24 24"
+            stroke-width="1.5"
+            stroke="currentColor"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+            <path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3" />
+            <path d="M12 3v18" />
+            <path d="M12 11l0 .01" />
+            <path d="M12 14l0 .01" />
+          </svg>
         </div>
-        <iframe id="proxy-frame"></iframe>
-        <div class="controls">
-            <button class="control-btn" onclick="goHome()" title="Home">
-                <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-home" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                    <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                    <path d="M5 12l-2 0l9 -9l9 9l-2 0" />
-                    <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7" />
-                    <path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6" />
-                </svg>
-            </button>
+        <h1>Nova</h1>
+        <p class="subtitle">Fast and secure web proxy</p>
+
+        <div class="search-container">
+          <div class="search-icon">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="icon icon-tabler icon-tabler-search"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+              <path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
+              <path d="M21 21l-6 -6" />
+            </svg>
+          </div>
+          <input
+            type="text"
+            id="url-input"
+            placeholder="Search or enter URL..."
+          />
         </div>
+        <div class="features">
+          <div class="feature">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="icon icon-tabler icon-tabler-bolt"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+              <path d="M13 3l0 7l6 0l-8 11l0 -7l-6 0l8 -11" />
+            </svg>
+            <div class="feature-text">Fast</div>
+          </div>
+          <div class="feature">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="icon icon-tabler icon-tabler-lock"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+              <path
+                d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6z"
+              />
+              <path d="M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0" />
+              <path d="M8 11v-4a4 4 0 1 1 8 0v4" />
+            </svg>
+            <div class="feature-text">Secure</div>
+          </div>
+          <div class="feature">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="icon icon-tabler icon-tabler-eye-off"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+              <path d="M10.585 10.587a2 2 0 0 0 2.829 2.828" />
+              <path
+                d="M16.681 16.673a8.717 8.717 0 0 1 -4.681 1.327c-3.6 0 -6.6 -2 -9 -6c1.272 -2.12 2.712 -3.678 4.32 -4.674m2.86 -1.146a9.055 9.055 0 0 1 1.82 -.18c3.6 0 6.6 2 9 6c-.666 1.11 -1.379 2.067 -2.138 2.87"
+              />
+              <path d="M3 3l18 18" />
+            </svg>
+            <div class="feature-text">Private</div>
+          </div>
+        </div>
+      </div>
+      <iframe id="proxy-frame"></iframe>
+      <div class="controls">
+        <button class="control-btn" onclick="goHome()" title="Home">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="icon icon-tabler icon-tabler-home"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+            <path d="M5 12l-2 0l9 -9l9 9l-2 0" />
+            <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7" />
+            <path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6" />
+          </svg>
+        </button>
+      </div>
     </div>
     <!-- Client script handles all proxy logic -->
     <script src="/client.js"></script>
     <script>
-        // Allow Enter key to submit
-        document.getElementById('url-input').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                loadUrl();
-            }
+      // Allow Enter key to submit
+      document
+        .getElementById("url-input")
+        .addEventListener("keypress", function (e) {
+          if (e.key === "Enter") {
+            loadUrl();
+          }
         });
     </script>
-</body>
+  </body>
 </html>
