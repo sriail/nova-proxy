@@ -106,6 +106,166 @@ async function loadProxiedUrl(url) {
   frame.go(url);
 }
 
+/**
+ * Client-side Cookie Rewriter System
+ * Works in coordination with the service worker's backend cookie rewriting
+ * to ensure cookies work correctly across the proxy
+ */
+const ClientCookieRewriter = {
+  /**
+   * Configuration for the cookie rewriter
+   */
+  config: {
+    isSecureContext: location.protocol === "https:",
+    proxyHostname: location.hostname,
+    proxyDomain:
+      location.hostname !== "localhost" && location.hostname !== "127.0.0.1"
+        ? "." + location.hostname
+        : null,
+  },
+
+  /**
+   * Parses a cookie string into components
+   */
+  parseCookie(cookieString) {
+    if (!cookieString || typeof cookieString !== "string") {
+      return null;
+    }
+
+    const parts = cookieString.split(";").map((part) => part.trim());
+    const [nameValue, ...attributes] = parts;
+
+    if (!nameValue) {
+      return null;
+    }
+
+    const eqIndex = nameValue.indexOf("=");
+    if (eqIndex === -1) {
+      return null;
+    }
+
+    const name = nameValue.substring(0, eqIndex).trim();
+    const value = nameValue.substring(eqIndex + 1);
+
+    const cookie = {
+      name,
+      value,
+      domain: null,
+      path: null,
+      expires: null,
+      maxAge: null,
+      secure: false,
+      httpOnly: false,
+      sameSite: null,
+    };
+
+    for (const attr of attributes) {
+      const attrLower = attr.toLowerCase();
+
+      if (attrLower === "secure") {
+        cookie.secure = true;
+      } else if (attrLower === "httponly") {
+        cookie.httpOnly = true;
+      } else if (attrLower.startsWith("domain=")) {
+        cookie.domain = attr.substring(7).trim();
+      } else if (attrLower.startsWith("path=")) {
+        cookie.path = attr.substring(5).trim();
+      } else if (attrLower.startsWith("expires=")) {
+        cookie.expires = attr.substring(8).trim();
+      } else if (attrLower.startsWith("max-age=")) {
+        cookie.maxAge = parseInt(attr.substring(8).trim(), 10);
+      } else if (attrLower.startsWith("samesite=")) {
+        cookie.sameSite = attr.substring(9).trim().toLowerCase();
+      }
+    }
+
+    return cookie;
+  },
+
+  /**
+   * Serializes a cookie object back to a string
+   */
+  serializeCookie(cookie) {
+    if (!cookie || !cookie.name) {
+      return "";
+    }
+
+    let result = `${cookie.name}=${cookie.value}`;
+
+    if (cookie.domain) {
+      result += `; Domain=${cookie.domain}`;
+    }
+
+    if (cookie.path) {
+      result += `; Path=${cookie.path}`;
+    }
+
+    if (cookie.expires) {
+      result += `; Expires=${cookie.expires}`;
+    }
+
+    if (cookie.maxAge !== null && cookie.maxAge !== undefined) {
+      result += `; Max-Age=${cookie.maxAge}`;
+    }
+
+    if (cookie.sameSite) {
+      result += `; SameSite=${cookie.sameSite}`;
+    }
+
+    if (cookie.secure) {
+      result += "; Secure";
+    }
+
+    // Note: httpOnly cannot be set from JavaScript, but we preserve it for parsing
+    return result;
+  },
+
+  /**
+   * Rewrites a cookie string to work with the proxy
+   */
+  rewriteCookie(cookieString) {
+    const cookie = this.parseCookie(cookieString);
+
+    if (!cookie) {
+      return cookieString;
+    }
+
+    const { isSecureContext, proxyDomain } = this.config;
+
+    // Rewrite domain attribute
+    if (cookie.domain) {
+      if (proxyDomain) {
+        cookie.domain = proxyDomain;
+      } else {
+        // For localhost, remove domain entirely
+        cookie.domain = null;
+      }
+    }
+
+    // Handle Secure flag in non-secure context
+    if (!isSecureContext && cookie.secure) {
+      cookie.secure = false;
+
+      // SameSite=None requires Secure, so change to Lax
+      if (cookie.sameSite === "none") {
+        cookie.sameSite = "lax";
+      }
+    }
+
+    // Handle SameSite=None without Secure
+    if (cookie.sameSite === "none" && !cookie.secure && !isSecureContext) {
+      cookie.sameSite = "lax";
+    }
+
+    // Ensure path is set
+    if (!cookie.path) {
+      cookie.path = "/";
+    }
+
+    return this.serializeCookie(cookie);
+  },
+};
+
 // Cookie rewriter system
 function setupCookieRewriter() {
   // Override document.cookie to rewrite domain checks
@@ -120,28 +280,8 @@ function setupCookieRewriter() {
         return originalCookieDescriptor.get.call(this);
       },
       set: function (value) {
-        // Remove domain restrictions that might fail verification
-        let modifiedValue = value;
-
-        // Remove domain attribute that might cause issues
-        modifiedValue = modifiedValue.replace(
-          /;\s*domain=[^;]+/gi,
-          "; domain=" + location.hostname
-        );
-
-        // Remove secure flag if not on HTTPS (for localhost testing)
-        if (location.protocol !== "https:") {
-          modifiedValue = modifiedValue.replace(/;\s*secure/gi, "");
-        }
-
-        // Remove SameSite=None if not secure
-        if (location.protocol !== "https:") {
-          modifiedValue = modifiedValue.replace(
-            /;\s*samesite=none/gi,
-            "; SameSite=Lax"
-          );
-        }
-
+        // Use the cookie rewriter to process the cookie
+        const modifiedValue = ClientCookieRewriter.rewriteCookie(value);
         return originalCookieDescriptor.set.call(this, modifiedValue);
       },
       configurable: true,
