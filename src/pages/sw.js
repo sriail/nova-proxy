@@ -131,21 +131,17 @@ const CookieRewriter = {
       }
     }
 
-    // Handle Secure flag
+    // Handle Secure flag and SameSite attribute
     // If not in secure context, remove Secure flag to allow cookie setting
-    if (!isSecureContext && cookie.secure) {
-      cookie.secure = false;
-      
-      // If SameSite=None requires Secure, change to Lax
+    // SameSite=None requires Secure flag, so adjust to Lax if needed
+    if (!isSecureContext) {
+      if (cookie.secure) {
+        cookie.secure = false;
+      }
+      // SameSite=None requires Secure, so change to Lax in non-secure context
       if (cookie.sameSite === 'none') {
         cookie.sameSite = 'lax';
       }
-    }
-
-    // Handle SameSite attribute
-    // SameSite=None requires Secure flag, so adjust if needed
-    if (cookie.sameSite === 'none' && !cookie.secure && !isSecureContext) {
-      cookie.sameSite = 'lax';
     }
 
     // Ensure path is set (default to root)
