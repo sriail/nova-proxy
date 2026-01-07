@@ -72,6 +72,10 @@ async function registerUltravioletSW() {
   // If the service worker is installing or waiting, wait for it to activate
   if (registration.installing || registration.waiting) {
     const sw = registration.installing || registration.waiting;
+    // Check if already activated before setting up listener
+    if (sw.state === "activated") {
+      return;
+    }
     await new Promise((resolve) => {
       sw.addEventListener("statechange", function handler() {
         if (sw.state === "activated") {
@@ -79,10 +83,6 @@ async function registerUltravioletSW() {
           resolve();
         }
       });
-      // If already activated, resolve immediately
-      if (sw.state === "activated") {
-        resolve();
-      }
     });
   }
 }
@@ -190,9 +190,6 @@ async function loadProxiedUrlUltraviolet(url) {
     alert("Failed to register service worker: " + err.message);
     throw err;
   }
-
-  // Wait a moment to ensure the service worker is ready
-  await new Promise(resolve => setTimeout(resolve, 100));
 
   const container = document.getElementById("container");
   let iframe = document.getElementById("proxy-frame");
