@@ -363,7 +363,8 @@ function setupAdBlocker() {
 
   const originalFetch = window.fetch;
   window.fetch = function(input, init) {
-    const url = typeof input === "string" ? input : input.url;
+    // Handle string, URL object, or Request object
+    const url = typeof input === "string" ? input : (input?.url || input?.toString?.() || String(input));
     if (isAdUrl(url)) {
       console.log("Blocked ad request:", url);
       return Promise.reject(new Error("Blocked by ad blocker"));
@@ -383,16 +384,27 @@ function setupAdBlocker() {
   const originalXhrSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.send = function() {
     if (this._blocked) {
+      // Simulate a network error for blocked requests
+      const self = this;
+      setTimeout(function() {
+        Object.defineProperty(self, "status", { value: 0 });
+        Object.defineProperty(self, "readyState", { value: 4 });
+        if (typeof self.onerror === "function") {
+          self.onerror(new Error("Blocked by ad blocker"));
+        }
+      }, 0);
       return;
     }
     return originalXhrSend.apply(this, arguments);
   };
 
-  // Add CSS to hide ad elements on the main page
-  const style = document.createElement("style");
-  style.textContent = AD_BLOCK_CSS;
-  style.id = "nova-ad-block-style";
-  document.head.appendChild(style);
+  // Add CSS to hide ad elements on the main page (prevent duplicate injection)
+  if (!document.getElementById("nova-ad-block-style")) {
+    const style = document.createElement("style");
+    style.textContent = AD_BLOCK_CSS;
+    style.id = "nova-ad-block-style";
+    document.head.appendChild(style);
+  }
 }
 
 // Window.open injection - redirect new windows to main iframe
