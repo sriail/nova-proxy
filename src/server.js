@@ -15,7 +15,6 @@ const publicPath = fileURLToPath(new URL("./pages/", import.meta.url));
 // Compute transport paths manually (these packages are browser-only)
 // We resolve the main export and go up to get the package directory
 const epoxyPath = join(dirname(fileURLToPath(import.meta.resolve("@mercuryworkshop/epoxy-transport"))), "..");
-const libcurlPath = join(dirname(fileURLToPath(import.meta.resolve("@mercuryworkshop/libcurl-transport"))), "..");
 
 // Wisp Configuration
 logging.set_level(logging.NONE);
@@ -67,13 +66,6 @@ fastify.register(fastifyStatic, {
 fastify.register(fastifyStatic, {
   root: baremuxPath,
   prefix: "/baremux/",
-  decorateReply: false,
-});
-
-// Serve libcurl transport files
-fastify.register(fastifyStatic, {
-  root: join(libcurlPath, "dist"),
-  prefix: "/libcurl/",
   decorateReply: false,
 });
 
