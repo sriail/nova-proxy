@@ -29,7 +29,6 @@ npm dev
 - Wisp.js (wisp server)
 - Scramjet (experamental web proxy)
 - Ultravilot (legacy web proxy)
-- Libcurl (wss and ws transport)
 - Epoxy (wss and ws transport)
 - Fastify (http server)
 
