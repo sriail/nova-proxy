@@ -126,6 +126,81 @@ const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
 // Store reference to current scramjet frame
 let currentFrame = null;
 
+// Track the last known URL to avoid duplicate updates
+let lastKnownUrl = "";
+
+// Function to decode URL from proxy URL path
+function decodeProxyUrl(proxyUrl, isUltraviolet) {
+  try {
+    const url = new URL(proxyUrl);
+    const pathname = url.pathname;
+    
+    if (isUltraviolet && typeof __uv$config !== "undefined" && typeof __uv$config.decodeUrl === "function") {
+      // For Ultraviolet, decode from the prefix path
+      if (pathname.startsWith(__uv$config.prefix)) {
+        const encodedPart = pathname.slice(__uv$config.prefix.length);
+        return __uv$config.decodeUrl(encodedPart);
+      }
+    } else {
+      // For Scramjet, the URL structure is /scram/<encoded>/path
+      if (pathname.startsWith("/scram/")) {
+        const parts = pathname.slice(7).split("/");
+        if (parts.length > 0) {
+          // Try to decode the scramjet URL
+          const encodedHost = parts[0];
+          try {
+            // Scramjet uses a specific encoding scheme
+            const decoded = atob(encodedHost);
+            if (decoded.startsWith("http")) {
+              return decoded + (parts.length > 1 ? "/" + parts.slice(1).join("/") : "");
+            }
+          } catch (e) {
+            // If base64 decoding fails, return the raw URL
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.log("Error decoding proxy URL:", e);
+  }
+  return null;
+}
+
+// Setup URL tracking for iframe navigation changes
+function setupUrlTracking(iframe, isUltraviolet) {
+  // Listen for iframe load events
+  iframe.addEventListener("load", function() {
+    try {
+      // Try to get the current URL from the iframe
+      let currentUrl = null;
+      
+      // Try accessing iframe's contentWindow location
+      try {
+        const iframeLocation = iframe.contentWindow.location.href;
+        // Decode the proxy URL to get the real URL
+        currentUrl = decodeProxyUrl(iframeLocation, isUltraviolet);
+      } catch (e) {
+        // Cross-origin restriction, try alternative methods
+      }
+      
+      // For Scramjet frames, try using the frame's URL property if available
+      if (!currentUrl && currentFrame && !currentFrame.isUltraviolet && currentFrame.url) {
+        currentUrl = currentFrame.url;
+      }
+      
+      // Update the nav URL bar if we got a valid URL
+      if (currentUrl && currentUrl !== lastKnownUrl) {
+        lastKnownUrl = currentUrl;
+        if (typeof window.updateNavUrlBar === "function") {
+          window.updateNavUrlBar(currentUrl);
+        }
+      }
+    } catch (e) {
+      console.log("Error tracking URL:", e);
+    }
+  });
+}
+
 // Main function to load a URL through the proxy using Scramjet
 async function loadProxiedUrlScramjet(url) {
   try {
@@ -174,6 +249,9 @@ async function loadProxiedUrlScramjet(url) {
   if (typeof window.updateNavUrlBar === "function") {
     window.updateNavUrlBar(url);
   }
+
+  // Setup URL change tracking for Scramjet
+  setupUrlTracking(frame.frame, false);
 
   // Navigate to URL
   frame.go(url);
@@ -227,6 +305,9 @@ async function loadProxiedUrlUltraviolet(url) {
   if (typeof window.updateNavUrlBar === "function") {
     window.updateNavUrlBar(url);
   }
+
+  // Setup URL change tracking for Ultraviolet
+  setupUrlTracking(iframe, true);
 
   // Encode the URL and navigate
   const encodedUrl = __uv$config.prefix + __uv$config.encodeUrl(url);
