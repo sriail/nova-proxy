@@ -4,6 +4,9 @@
 // Use epoxy transport v2.1.28 for better SharedWorker compatibility and proper headers handling
 const TRANSPORT_PATH = "/epoxy/index.mjs";
 
+// Scramjet URL prefix for proxy routes
+const SCRAMJET_PREFIX = "/scram/";
+
 // List of hostnames that are allowed to run service workers on http://
 const swAllowedHostnames = ["localhost", "127.0.0.1"];
 
@@ -143,8 +146,8 @@ function decodeProxyUrl(proxyUrl, isUltraviolet) {
       }
     } else {
       // For Scramjet, the URL structure is /scram/<encoded>/path
-      if (pathname.startsWith("/scram/")) {
-        const parts = pathname.slice(7).split("/");
+      if (pathname.startsWith(SCRAMJET_PREFIX)) {
+        const parts = pathname.slice(SCRAMJET_PREFIX.length).split("/");
         if (parts.length > 0) {
           // Try to decode the scramjet URL
           const encodedHost = parts[0];
@@ -166,6 +169,16 @@ function decodeProxyUrl(proxyUrl, isUltraviolet) {
   return null;
 }
 
+// Helper function to get iframe location URL safely
+function getIframeLocationUrl(iframe) {
+  try {
+    return iframe.contentWindow.location.href;
+  } catch (e) {
+    // Cross-origin restriction
+    return null;
+  }
+}
+
 // Setup URL tracking for iframe navigation changes
 function setupUrlTracking(iframe, isUltraviolet) {
   // Listen for iframe load events
@@ -175,12 +188,9 @@ function setupUrlTracking(iframe, isUltraviolet) {
       let currentUrl = null;
       
       // Try accessing iframe's contentWindow location
-      try {
-        const iframeLocation = iframe.contentWindow.location.href;
-        // Decode the proxy URL to get the real URL
+      const iframeLocation = getIframeLocationUrl(iframe);
+      if (iframeLocation) {
         currentUrl = decodeProxyUrl(iframeLocation, isUltraviolet);
-      } catch (e) {
-        // Cross-origin restriction, try alternative methods
       }
       
       // For Scramjet frames, try using the frame's URL property if available

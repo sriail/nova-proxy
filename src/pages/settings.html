@@ -363,52 +363,45 @@
         // Apply current theme
         applyTheme(theme);
 
-        // Update theme radio selection
-        document.querySelectorAll('[data-group="theme"]').forEach((option) => {
+        // Update radio selections using helper function
+        updateRadioSelection("theme", theme);
+        updateRadioSelection("proxy-engine", proxyEngine);
+      });
+
+      // Helper function to update radio selection for a group
+      function updateRadioSelection(groupName, selectedValue) {
+        document.querySelectorAll('[data-group="' + groupName + '"]').forEach((option) => {
           option.classList.remove("selected");
-          if (option.dataset.value === theme) {
+          option.querySelector("input").checked = false;
+          if (option.dataset.value === selectedValue) {
             option.classList.add("selected");
             option.querySelector("input").checked = true;
           }
         });
+      }
 
-        // Update proxy engine radio selection
-        document.querySelectorAll('[data-group="proxy-engine"]').forEach((option) => {
-          option.classList.remove("selected");
-          if (option.dataset.value === proxyEngine) {
-            option.classList.add("selected");
-            option.querySelector("input").checked = true;
-          }
-        });
-      });
-
-      // Handle radio button clicks for theme options
-      document.querySelectorAll('[data-group="theme"]').forEach((option) => {
-        option.addEventListener("click", function () {
-          document.querySelectorAll('[data-group="theme"]').forEach((opt) => {
-            opt.classList.remove("selected");
-            opt.querySelector("input").checked = false;
+      // Helper function to setup radio button click handlers
+      function setupRadioGroup(groupName, onSelect) {
+        document.querySelectorAll('[data-group="' + groupName + '"]').forEach((option) => {
+          option.addEventListener("click", function () {
+            updateRadioSelection(groupName, this.dataset.value);
+            if (onSelect) onSelect(this.dataset.value);
           });
-          this.classList.add("selected");
-          this.querySelector("input").checked = true;
-          
-          // Apply theme immediately for preview
-          const selectedTheme = this.dataset.value;
-          applyTheme(selectedTheme);
         });
-      });
+      }
 
-      // Handle radio button clicks for proxy engine options
-      document.querySelectorAll('[data-group="proxy-engine"]').forEach((option) => {
-        option.addEventListener("click", function () {
-          document.querySelectorAll('[data-group="proxy-engine"]').forEach((opt) => {
-            opt.classList.remove("selected");
-            opt.querySelector("input").checked = false;
-          });
-          this.classList.add("selected");
-          this.querySelector("input").checked = true;
-        });
+      // Setup radio button click handlers
+      setupRadioGroup("theme", function(selectedTheme) {
+        // Apply theme immediately for preview
+        applyTheme(selectedTheme);
       });
+      setupRadioGroup("proxy-engine");
+
+      // Helper function to get selected radio value with default
+      function getSelectedRadioValue(name, defaultValue) {
+        const checked = document.querySelector('input[name="' + name + '"]:checked');
+        return checked ? checked.value : defaultValue;
+      }
 
       // Listen for system theme changes
       if (window.matchMedia) {
@@ -422,15 +415,9 @@
 
       function saveSettings() {
         const wispServer = document.getElementById("wisp-server").value.trim();
-        const checkedEngineRadio = document.querySelector(
-          'input[name="proxy-engine"]:checked'
-        );
-        const proxyEngine = checkedEngineRadio ? checkedEngineRadio.value : "scramjet";
+        const proxyEngine = getSelectedRadioValue("proxy-engine", "scramjet");
         const adBlock = document.getElementById("ad-block").checked;
-        const checkedThemeRadio = document.querySelector(
-          'input[name="theme"]:checked'
-        );
-        const theme = checkedThemeRadio ? checkedThemeRadio.value : "system";
+        const theme = getSelectedRadioValue("theme", "system");
 
         localStorage.setItem("nova-wisp-server", wispServer);
         localStorage.setItem("nova-proxy-engine", proxyEngine);
