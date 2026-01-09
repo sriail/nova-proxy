@@ -608,9 +608,7 @@
         if (!iframe) {
           iframe = document.createElement("iframe");
           iframe.id = "proxy-frame";
-          iframe.style.width = "100%";
-          iframe.style.height = "calc(100vh - var(--nav-bar-height))";
-          iframe.style.border = "none";
+          // CSS handles styling via #proxy-frame selector
           container.appendChild(iframe);
         }
         return iframe;
@@ -640,6 +638,7 @@
           return;
         }
         if (input === "nova:error") {
+          navUrlInput.value = "nova:error";
           const iframe = getOrCreateProxyIframe();
           iframe.src = "/error.html";
           iframe.style.display = "block";
