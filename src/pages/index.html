@@ -24,6 +24,120 @@
         display: flex;
         flex-direction: column;
       }
+      /* Upper Navigation Bar */
+      .upper-nav {
+        display: flex;
+        align-items: center;
+        padding: 0.5rem 1rem;
+        background: #f8f8f8;
+        border-bottom: 1px solid #e0e0e0;
+        gap: 0.5rem;
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+      }
+      .nav-left {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+      }
+      .nav-btn {
+        background: white;
+        border: 1px solid #d0d0d0;
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.2s;
+      }
+      .nav-btn:hover {
+        background: #e8e8e8;
+      }
+      .nav-btn:active {
+        background: #d8d8d8;
+      }
+      .nav-btn svg {
+        width: 16px;
+        height: 16px;
+        stroke: #333;
+      }
+      .nav-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .nav-url-container {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        background: white;
+        border: 1px solid #d0d0d0;
+        border-radius: 20px;
+        padding: 0.25rem 0.75rem;
+        margin: 0 0.5rem;
+      }
+      .nav-url-container svg {
+        width: 14px;
+        height: 14px;
+        stroke: #666;
+        margin-right: 0.5rem;
+        flex-shrink: 0;
+      }
+      #nav-url-input {
+        border: none;
+        outline: none;
+        flex: 1;
+        font-size: 0.85rem;
+        padding: 0.35rem 0;
+        background: transparent;
+      }
+      .nav-right {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        position: relative;
+      }
+      .dropdown-container {
+        position: relative;
+      }
+      .dropdown-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        right: 0;
+        background: white;
+        border: 1px solid #d0d0d0;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        min-width: 150px;
+        z-index: 1001;
+        margin-top: 4px;
+      }
+      .dropdown-menu.show {
+        display: block;
+      }
+      .dropdown-item {
+        padding: 0.75rem 1rem;
+        cursor: pointer;
+        font-size: 0.9rem;
+        color: #333;
+        border-bottom: 1px solid #f0f0f0;
+        transition: background 0.2s;
+      }
+      .dropdown-item:last-child {
+        border-bottom: none;
+      }
+      .dropdown-item:hover {
+        background: #f5f5f5;
+      }
+      .dropdown-item:first-child {
+        border-radius: 8px 8px 0 0;
+      }
+      .dropdown-item:last-child {
+        border-radius: 0 0 8px 8px;
+      }
       .container {
         flex: 1;
         display: flex;
@@ -111,7 +225,7 @@
       #proxy-frame {
         display: none;
         width: 100%;
-        height: 100vh;
+        height: calc(100vh - 49px);
         border: none;
       }
       .iframe-active #proxy-frame {
@@ -129,7 +243,7 @@
         z-index: 1000;
       }
       .iframe-active .controls {
-        display: flex;
+        display: none;
       }
       .control-btn {
         background: white;
@@ -180,12 +294,86 @@
         height: 20px;
         stroke: black;
       }
-      .iframe-active .settings-btn {
+      .settings-btn {
         display: none;
       }
     </style>
   </head>
   <body>
+    <!-- Upper Navigation Bar -->
+    <nav class="upper-nav">
+      <div class="nav-left">
+        <!-- Back Button -->
+        <button class="nav-btn" id="nav-back" title="Go Back" onclick="navGoBack()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M5 12l14 0"/>
+            <path d="M5 12l6 6"/>
+            <path d="M5 12l6 -6"/>
+          </svg>
+        </button>
+        <!-- Forward Button -->
+        <button class="nav-btn" id="nav-forward" title="Go Forward" onclick="navGoForward()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M5 12l14 0"/>
+            <path d="M13 18l6 -6"/>
+            <path d="M13 6l6 6"/>
+          </svg>
+        </button>
+        <!-- Reload Button -->
+        <button class="nav-btn" id="nav-reload" title="Reload" onclick="navReload()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/>
+            <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/>
+          </svg>
+        </button>
+        <!-- Home Button -->
+        <button class="nav-btn" id="nav-home" title="Home" onclick="goHome()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M5 12l-2 0l9 -9l9 9l-2 0"/>
+            <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/>
+            <path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/>
+          </svg>
+        </button>
+      </div>
+      <!-- URL Bar -->
+      <div class="nav-url-container">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+          <path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/>
+          <path d="M21 21l-6 -6"/>
+        </svg>
+        <input type="text" id="nav-url-input" placeholder="Search or enter URL..." />
+      </div>
+      <div class="nav-right">
+        <!-- Settings Button -->
+        <button class="nav-btn" id="nav-settings" title="Settings" onclick="goToSettings()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z"/>
+            <path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/>
+          </svg>
+        </button>
+        <!-- Dropdown Menu -->
+        <div class="dropdown-container">
+          <button class="nav-btn" id="nav-menu" title="More options" onclick="toggleDropdown()">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+              <path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/>
+              <path d="M12 5m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/>
+              <path d="M12 19m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/>
+            </svg>
+          </button>
+          <div class="dropdown-menu" id="dropdown-menu">
+            <div class="dropdown-item" onclick="goToSettings()">Settings</div>
+            <div class="dropdown-item" onclick="goHome()">Home</div>
+          </div>
+        </div>
+      </div>
+    </nav>
     <a href="/settings.html" class="settings-btn" title="Settings">
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -338,7 +526,7 @@
     <!-- Client script handles all proxy logic -->
     <script src="/client.js"></script>
     <script>
-      // Allow Enter key to submit
+      // Allow Enter key to submit on main URL input
       document
         .getElementById("url-input")
         .addEventListener("keypress", function (e) {
@@ -346,6 +534,130 @@
             loadUrl();
           }
         });
+
+      // Navigation bar URL input - select all text on click
+      const navUrlInput = document.getElementById("nav-url-input");
+      navUrlInput.addEventListener("click", function () {
+        this.select();
+      });
+
+      // Allow Enter key to submit on nav URL input
+      navUrlInput.addEventListener("keypress", function (e) {
+        if (e.key === "Enter") {
+          loadNavUrl();
+        }
+      });
+
+      // Toggle dropdown menu
+      function toggleDropdown() {
+        const dropdown = document.getElementById("dropdown-menu");
+        dropdown.classList.toggle("show");
+      }
+
+      // Close dropdown when clicking outside
+      document.addEventListener("click", function (e) {
+        const dropdown = document.getElementById("dropdown-menu");
+        const menuBtn = document.getElementById("nav-menu");
+        if (!dropdown.contains(e.target) && !menuBtn.contains(e.target)) {
+          dropdown.classList.remove("show");
+        }
+      });
+
+      // Navigation functions
+      function navGoBack() {
+        const iframe = document.getElementById("proxy-frame");
+        if (iframe && iframe.contentWindow) {
+          try {
+            iframe.contentWindow.history.back();
+          } catch (e) {
+            console.log("Cannot navigate back:", e);
+          }
+        }
+      }
+
+      function navGoForward() {
+        const iframe = document.getElementById("proxy-frame");
+        if (iframe && iframe.contentWindow) {
+          try {
+            iframe.contentWindow.history.forward();
+          } catch (e) {
+            console.log("Cannot navigate forward:", e);
+          }
+        }
+      }
+
+      function navReload() {
+        const iframe = document.getElementById("proxy-frame");
+        if (iframe && iframe.contentWindow) {
+          try {
+            iframe.contentWindow.location.reload();
+          } catch (e) {
+            console.log("Cannot reload:", e);
+          }
+        }
+      }
+
+      function goToSettings() {
+        const dropdown = document.getElementById("dropdown-menu");
+        dropdown.classList.remove("show");
+        navUrlInput.value = "nova:settings";
+        // Load settings page in iframe
+        const container = document.getElementById("container");
+        container.classList.add("iframe-active");
+        
+        let iframe = document.getElementById("proxy-frame");
+        if (!iframe) {
+          iframe = document.createElement("iframe");
+          iframe.id = "proxy-frame";
+          iframe.style.width = "100%";
+          iframe.style.height = "calc(100vh - 49px)";
+          iframe.style.border = "none";
+          container.appendChild(iframe);
+        }
+        iframe.src = "/settings.html";
+        iframe.style.display = "block";
+      }
+
+      // Load URL from navigation bar
+      function loadNavUrl() {
+        const input = navUrlInput.value.trim().toLowerCase();
+        
+        // Handle nova: special URLs
+        if (input === "nova:home") {
+          goHome();
+          return;
+        }
+        if (input === "nova:settings") {
+          goToSettings();
+          return;
+        }
+        if (input === "nova:error") {
+          const container = document.getElementById("container");
+          container.classList.add("iframe-active");
+          let iframe = document.getElementById("proxy-frame");
+          if (!iframe) {
+            iframe = document.createElement("iframe");
+            iframe.id = "proxy-frame";
+            iframe.style.width = "100%";
+            iframe.style.height = "calc(100vh - 49px)";
+            iframe.style.border = "none";
+            container.appendChild(iframe);
+          }
+          iframe.src = "/error.html";
+          iframe.style.display = "block";
+          return;
+        }
+        
+        // Regular URL handling
+        const urlInput = document.getElementById("url-input");
+        urlInput.value = navUrlInput.value.trim();
+        loadUrl();
+      }
+
+      // Update nav URL bar when navigating (called from client.js)
+      window.updateNavUrlBar = function(url) {
+        navUrlInput.value = url || "";
+      };
     </script>
   </body>
 </html>
