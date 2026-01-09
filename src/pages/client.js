@@ -147,11 +147,14 @@ async function loadProxiedUrlScramjet(url) {
   const container = document.getElementById("container");
   const existingIframe = document.getElementById("proxy-frame");
 
+  // Get the nav bar height from CSS variable
+  const navBarHeight = getComputedStyle(document.documentElement).getPropertyValue('--nav-bar-height') || '49px';
+
   // Create scramjet frame
   const frame = scramjet.createFrame();
   frame.frame.id = "proxy-frame";
   frame.frame.style.width = "100%";
-  frame.frame.style.height = "100vh";
+  frame.frame.style.height = `calc(100vh - ${navBarHeight})`;
   frame.frame.style.border = "none";
 
   // Store reference
@@ -166,6 +169,11 @@ async function loadProxiedUrlScramjet(url) {
 
   // Show iframe mode
   container.classList.add("iframe-active");
+
+  // Update the nav URL bar with the decoded URL
+  if (typeof window.updateNavUrlBar === "function") {
+    window.updateNavUrlBar(url);
+  }
 
   // Navigate to URL
   frame.go(url);
@@ -196,12 +204,15 @@ async function loadProxiedUrlUltraviolet(url) {
   const container = document.getElementById("container");
   let iframe = document.getElementById("proxy-frame");
 
+  // Get the nav bar height from CSS variable
+  const navBarHeight = getComputedStyle(document.documentElement).getPropertyValue('--nav-bar-height') || '49px';
+
   // Create or reuse iframe
   if (!iframe) {
     iframe = document.createElement("iframe");
     iframe.id = "proxy-frame";
     iframe.style.width = "100%";
-    iframe.style.height = "100vh";
+    iframe.style.height = `calc(100vh - ${navBarHeight})`;
     iframe.style.border = "none";
     container.appendChild(iframe);
   }
@@ -211,6 +222,11 @@ async function loadProxiedUrlUltraviolet(url) {
 
   // Show iframe mode
   container.classList.add("iframe-active");
+
+  // Update the nav URL bar with the decoded URL
+  if (typeof window.updateNavUrlBar === "function") {
+    window.updateNavUrlBar(url);
+  }
 
   // Encode the URL and navigate
   const encodedUrl = __uv$config.prefix + __uv$config.encodeUrl(url);
@@ -470,6 +486,11 @@ document.addEventListener("DOMContentLoaded", () => {
     container.classList.remove("iframe-active");
     urlInput.value = "";
     currentFrame = null;
+
+    // Clear the nav URL bar
+    if (typeof window.updateNavUrlBar === "function") {
+      window.updateNavUrlBar("");
+    }
 
     // Remove and reset the iframe for a cleaner state
     const iframe = document.getElementById("proxy-frame");
