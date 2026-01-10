@@ -1338,16 +1338,27 @@
         }
       }
       
-      // Switch to a specific tab
+      // Track currently visible iframe to optimize switching
+      let currentVisibleIframeId = null;
+      
+      // Switch to a specific tab (optimized for performance)
       function switchToTab(tabId) {
         const tab = tabs.find(t => t.id === tabId);
         if (!tab) return;
         
+        // Skip if already on this tab
+        if (activeTabId === tabId) return;
+        
         activeTabId = tabId;
         
-        // Update active class
-        document.querySelectorAll('.tab').forEach(el => {
-          el.classList.toggle('active', parseInt(el.dataset.tabId) === tabId);
+        // Update active class efficiently - only update changed tabs
+        const tabContainer = document.getElementById('tabs-container');
+        const tabEls = tabContainer.querySelectorAll('.tab');
+        tabEls.forEach(el => {
+          const isActive = parseInt(el.dataset.tabId, 10) === tabId;
+          if (el.classList.contains('active') !== isActive) {
+            el.classList.toggle('active', isActive);
+          }
         });
         
         const container = document.getElementById('container');
@@ -1356,20 +1367,18 @@
         if (tab.type === 'home') {
           // Show home content
           container.classList.remove('iframe-active');
-          hideAllIframes();
+          hideCurrentIframe();
           navUrlInput.value = '';
           document.getElementById('url-input').value = '';
         } else if (tab.type === 'settings') {
           // Settings is on a separate page, so navigate there
           // But we want to keep tabs, so we'll load settings in an iframe
           container.classList.add('iframe-active');
-          hideAllIframes();
           showOrCreateTabIframe(tab, '/settings.html');
           navUrlInput.value = 'nova:settings';
         } else if (tab.type === 'proxy') {
           // Show proxy content
           container.classList.add('iframe-active');
-          hideAllIframes();
           showOrCreateTabIframe(tab);
           navUrlInput.value = tab.url || '';
         }
@@ -1377,17 +1386,44 @@
         saveTabsToStorage();
       }
       
-      // Hide all iframes
-      function hideAllIframes() {
-        document.querySelectorAll('#container iframe').forEach(iframe => {
-          iframe.style.display = 'none';
-        });
+      // Hide only the currently visible iframe (optimized)
+      function hideCurrentIframe() {
+        if (currentVisibleIframeId) {
+          const iframe = document.getElementById(currentVisibleIframeId);
+          if (iframe) {
+            iframe.style.display = 'none';
+          }
+          currentVisibleIframeId = null;
+        }
       }
       
-      // Show or create iframe for tab
+      // Expose function for client.js to update the visible iframe ID
+      window.setCurrentVisibleIframeId = function(iframeId) {
+        currentVisibleIframeId = iframeId;
+      };
+      
+      // Hide all iframes (used during cleanup)
+      function hideAllIframes() {
+        const container = document.getElementById('container');
+        const iframes = container.getElementsByTagName('iframe');
+        for (let i = 0; i < iframes.length; i++) {
+          iframes[i].style.display = 'none';
+        }
+        currentVisibleIframeId = null;
+      }
+      
+      // Show or create iframe for tab (optimized to reuse existing iframes)
       function showOrCreateTabIframe(tab, overrideUrl) {
         const container = document.getElementById('container');
         let iframe = null;
+        
+        // If there's a currently visible iframe that's different, hide it first
+        if (currentVisibleIframeId && currentVisibleIframeId !== tab.iframeId) {
+          const oldIframe = document.getElementById(currentVisibleIframeId);
+          if (oldIframe) {
+            oldIframe.style.display = 'none';
+          }
+        }
         
         if (tab.iframeId) {
           iframe = document.getElementById(tab.iframeId);
@@ -1402,7 +1438,7 @@
           iframe.style.height = 'calc(100vh - var(--nav-bar-height) - var(--tab-bar-height))';
           iframe.style.border = 'none';
           
-          // Remove old proxy-frame if exists
+          // Remove old proxy-frame if exists (legacy cleanup)
           const oldFrame = document.getElementById('proxy-frame');
           if (oldFrame) oldFrame.remove();
           
@@ -1417,7 +1453,9 @@
           }
         }
         
+        // Show the iframe
         iframe.style.display = 'block';
+        currentVisibleIframeId = tab.iframeId;
         
         // Update CSS for iframe-active state
         container.classList.add('iframe-active');
@@ -1443,6 +1481,10 @@
         if (tab.iframeId) {
           const iframe = document.getElementById(tab.iframeId);
           if (iframe) iframe.remove();
+          // Clear currentVisibleIframeId if we're removing the visible iframe
+          if (currentVisibleIframeId === tab.iframeId) {
+            currentVisibleIframeId = null;
+          }
         }
         
         // Remove from array
@@ -1450,11 +1492,12 @@
         
         // If this was the active tab, switch to another
         if (tabId === activeTabId) {
+          // Reset activeTabId to allow switchToTab to run
+          activeTabId = null;
           if (tabs.length > 0) {
             // Switch to the tab at the same position or the last one
             const newIndex = Math.min(tabIndex, tabs.length - 1);
-            activeTabId = tabs[newIndex].id;
-            switchToTab(activeTabId);
+            switchToTab(tabs[newIndex].id);
           } else {
             // No tabs left, create a new one
             addNewTab();
@@ -1466,32 +1509,65 @@
         saveTabsToStorage();
       }
       
-      // Update tab info (called from client.js)
+      // Update tab info (called from client.js) - optimized to avoid unnecessary DOM updates
       window.updateTabInfo = function(tabId, info) {
         const tab = tabs.find(t => t.id === tabId);
         if (!tab) return;
         
-        if (info.url !== undefined) tab.url = info.url;
-        if (info.title !== undefined) tab.title = info.title;
-        if (info.favicon !== undefined) tab.favicon = info.favicon;
+        // Track what actually changed
+        let urlChanged = false;
+        let titleChanged = false;
+        let faviconChanged = false;
         
-        // Update DOM - find tab element safely by iterating
-        const container = document.getElementById('tabs-container');
-        const tabEls = container.querySelectorAll('.tab');
-        let tabEl = null;
-        for (const el of tabEls) {
-          if (parseInt(el.dataset.tabId, 10) === tabId) {
-            tabEl = el;
-            break;
+        if (info.url !== undefined && tab.url !== info.url) {
+          tab.url = info.url;
+          urlChanged = true;
+        }
+        if (info.title !== undefined && tab.title !== info.title) {
+          tab.title = info.title;
+          titleChanged = true;
+        }
+        if (info.favicon !== undefined && tab.favicon !== info.favicon) {
+          tab.favicon = info.favicon;
+          faviconChanged = true;
+        }
+        
+        // Only update DOM if something changed
+        if (titleChanged || faviconChanged) {
+          // Find tab element efficiently
+          const container = document.getElementById('tabs-container');
+          const tabEls = container.querySelectorAll('.tab');
+          let tabEl = null;
+          for (const el of tabEls) {
+            if (parseInt(el.dataset.tabId, 10) === tabId) {
+              tabEl = el;
+              break;
+            }
+          }
+          if (tabEl) {
+            if (titleChanged) {
+              tabEl.querySelector('.tab-title').textContent = getTabTitle(tab);
+            }
+            if (faviconChanged) {
+              const faviconContainer = tabEl.querySelector('.tab-favicon');
+              // Only update favicon DOM if we have a valid favicon
+              const faviconEl = createFaviconElement(tab, false);
+              if (faviconEl) {
+                faviconContainer.innerHTML = '';
+                faviconContainer.appendChild(faviconEl);
+                // Add onerror handler for image elements
+                if (faviconEl.tagName === 'IMG') {
+                  faviconEl.onerror = function() {
+                    this.parentElement.innerHTML = NOVA_ICON_SVG;
+                  };
+                }
+              }
+            }
           }
         }
-        if (tabEl) {
-          tabEl.querySelector('.tab-title').textContent = getTabTitle(tab);
-          tabEl.querySelector('.tab-favicon').innerHTML = getTabFaviconHtml(tab);
-        }
         
-        // Update nav URL bar if this is the active tab
-        if (tabId === activeTabId && info.url !== undefined) {
+        // Update nav URL bar if this is the active tab and URL changed
+        if (urlChanged && tabId === activeTabId) {
           navUrlInput.value = info.url;
         }
         
@@ -1520,26 +1596,33 @@
         
         const container = document.getElementById('container');
         container.classList.add('iframe-active');
-        hideAllIframes();
+        hideCurrentIframe();
         
         // The actual proxy loading is handled by client.js
         // We just need to prepare the tab state
       };
       
-      // Storage functions
+      // Debounced storage save to avoid excessive localStorage writes
+      let saveStorageTimeout = null;
       function saveTabsToStorage() {
-        const data = {
-          tabs: tabs.map(t => ({
-            id: t.id,
-            type: t.type,
-            url: t.url,
-            title: t.title,
-            favicon: t.favicon
-          })),
-          activeTabId: activeTabId,
-          tabIdCounter: tabIdCounter
-        };
-        localStorage.setItem('nova-tabs', JSON.stringify(data));
+        if (saveStorageTimeout) {
+          clearTimeout(saveStorageTimeout);
+        }
+        saveStorageTimeout = setTimeout(() => {
+          const data = {
+            tabs: tabs.map(t => ({
+              id: t.id,
+              type: t.type,
+              url: t.url,
+              title: t.title,
+              favicon: t.favicon
+            })),
+            activeTabId: activeTabId,
+            tabIdCounter: tabIdCounter
+          };
+          localStorage.setItem('nova-tabs', JSON.stringify(data));
+          saveStorageTimeout = null;
+        }, 300); // Debounce by 300ms
       }
       
       function loadTabsFromStorage() {
@@ -1572,8 +1655,13 @@
           tab.url = '';
           tab.title = 'Settings';
           tab.favicon = null;
+          
+          // Reset activeTabId to allow switchToTab to run the settings display logic
+          const currentActiveTabId = activeTabId;
+          activeTabId = null;
+          
           renderTabs();
-          switchToTab(activeTabId);
+          switchToTab(currentActiveTabId);
         }
       };
       
@@ -1587,32 +1675,45 @@
           tab.title = 'New Tab';
           tab.favicon = null;
           
-          // Clear iframe
+          // Clear iframe and currentVisibleIframeId reference
           if (tab.iframeId) {
             const iframe = document.getElementById(tab.iframeId);
             if (iframe) iframe.remove();
+            if (currentVisibleIframeId === tab.iframeId) {
+              currentVisibleIframeId = null;
+            }
             tab.iframeId = null;
           }
           
+          // Reset activeTabId to allow switchToTab to run the home display logic
+          const currentActiveTabId = activeTabId;
+          activeTabId = null;
+          
           renderTabs();
-          switchToTab(activeTabId);
+          switchToTab(currentActiveTabId);
         }
       };
       
       // Initialize tabs on page load
       function initTabs() {
+        let initialTabId = null;
+        
         if (!loadTabsFromStorage()) {
           // Create initial home tab
           const homeTab = createTabData('home', '', 'New Tab');
           tabs.push(homeTab);
-          activeTabId = homeTab.id;
+          initialTabId = homeTab.id;
+        } else {
+          initialTabId = activeTabId;
+          // Reset activeTabId so switchToTab will run
+          activeTabId = null;
         }
         
         renderTabs();
         
         // Ensure we switch to the active tab to restore state
-        if (activeTabId !== null) {
-          switchToTab(activeTabId);
+        if (initialTabId !== null) {
+          switchToTab(initialTabId);
         }
       }
       
