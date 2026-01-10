@@ -100,7 +100,9 @@
         display: flex;
         align-items: center;
         background: var(--tab-bg);
-        border-radius: 8px 8px 0 0;
+        border-radius: 6px 6px 0 0;
+        border: 1px solid var(--border-color);
+        border-bottom: none;
         padding: 6px 12px;
         min-width: 60px;
         max-width: 200px;
@@ -118,6 +120,7 @@
       .tab.active {
         background: var(--tab-active-bg);
         position: relative;
+        border-color: var(--border-light);
       }
       .tab.active::after {
         content: '';
@@ -186,18 +189,18 @@
       }
       /* Tab size states */
       .tab.compact {
-        min-width: 40px;
-        max-width: 40px;
-        padding: 6px 8px;
+        min-width: 50px;
+        max-width: 50px;
+        padding: 6px 6px;
       }
       .tab.compact .tab-title {
         display: none;
       }
       .tab.compact .tab-favicon {
-        margin-right: 0;
+        margin-right: 4px;
       }
       .tab.compact .tab-close {
-        display: none;
+        margin-left: 2px;
       }
       .tab.medium {
         max-width: 120px;
@@ -605,14 +608,14 @@
     <div class="tab-bar" id="tab-bar">
       <div class="tabs-container" id="tabs-container">
         <!-- Tabs will be dynamically added here -->
+        <button class="tab-add-btn" id="tab-add-btn" title="New Tab" onclick="addNewTab()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M12 5l0 14"/>
+            <path d="M5 12l14 0"/>
+          </svg>
+        </button>
       </div>
-      <button class="tab-add-btn" id="tab-add-btn" title="New Tab" onclick="addNewTab()">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-          <path d="M12 5l0 14"/>
-          <path d="M5 12l14 0"/>
-        </svg>
-      </button>
     </div>
     <!-- Upper Navigation Bar -->
     <nav class="upper-nav">
@@ -1104,7 +1107,7 @@
       
       // Get display title for tab
       function getTabTitle(tab) {
-        if (tab.type === 'home') return 'Nova';
+        if (tab.type === 'home') return 'New Tab';
         if (tab.type === 'settings') return 'Settings';
         if (tab.title) return tab.title;
         if (tab.url) {
@@ -1267,14 +1270,19 @@
       // Render all tabs
       function renderTabs() {
         const container = document.getElementById('tabs-container');
-        container.innerHTML = '';
+        const addBtn = document.getElementById('tab-add-btn');
+        
+        // Remove all tabs but keep the add button
+        const existingTabs = container.querySelectorAll('.tab');
+        existingTabs.forEach(tab => tab.remove());
         
         tabs.forEach(tab => {
           const tabEl = createTabElement(tab);
           if (tab.id === activeTabId) {
             tabEl.classList.add('active');
           }
-          container.appendChild(tabEl);
+          // Insert before the add button
+          container.insertBefore(tabEl, addBtn);
         });
         
         adjustTabSizes();
@@ -1299,7 +1307,7 @@
         const tabCount = tabEls.length;
         const maxTabWidth = 200;
         const mediumTabWidth = 80;
-        const compactTabWidth = 40;
+        const compactTabWidth = 50; // Updated for favicon + close button
         
         // Calculate ideal width per tab
         const idealWidth = availableWidth / tabCount;
@@ -1310,7 +1318,7 @@
           // Medium size - show favicon and close button
           tabEls.forEach(tab => tab.classList.add('medium'));
         } else if (idealWidth >= compactTabWidth) {
-          // Compact - just favicon
+          // Compact - favicon and close button
           tabEls.forEach(tab => tab.classList.add('compact'));
         } else {
           // At minimum, still show compact and let scrollbar appear
@@ -1405,7 +1413,7 @@
       
       // Add a new tab
       function addNewTab() {
-        const tab = createTabData('home', '', 'Nova');
+        const tab = createTabData('home', '', 'New Tab');
         tabs.push(tab);
         renderTabs();
         switchToTab(tab.id);
@@ -1564,7 +1572,7 @@
         if (tab) {
           tab.type = 'home';
           tab.url = '';
-          tab.title = 'Nova';
+          tab.title = 'New Tab';
           tab.favicon = null;
           
           // Clear iframe
@@ -1583,7 +1591,7 @@
       function initTabs() {
         if (!loadTabsFromStorage()) {
           // Create initial home tab
-          const homeTab = createTabData('home', '', 'Nova');
+          const homeTab = createTabData('home', '', 'New Tab');
           tabs.push(homeTab);
           activeTabId = homeTab.id;
         }
