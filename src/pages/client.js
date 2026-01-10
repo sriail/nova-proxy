@@ -169,6 +169,9 @@ let currentFrame = null;
 // Track the last known URL to avoid duplicate updates
 let lastKnownUrl = "";
 
+// Store tab-to-frame mapping
+const tabFrames = new Map();
+
 // Function to decode URL from proxy URL path
 function decodeProxyUrl(proxyUrl, isUltraviolet) {
   try {
@@ -217,12 +220,14 @@ function getIframeLocationUrl(iframe) {
 }
 
 // Setup URL tracking for iframe navigation changes
-function setupUrlTracking(iframe, isUltraviolet) {
+function setupUrlTracking(iframe, isUltraviolet, tabId) {
   // Listen for iframe load events
   iframe.addEventListener("load", function() {
     try {
       // Try to get the current URL from the iframe
       let currentUrl = null;
+      let pageTitle = null;
+      let favicon = null;
       
       // Try accessing iframe's contentWindow location
       const iframeLocation = getIframeLocationUrl(iframe);
@@ -235,12 +240,43 @@ function setupUrlTracking(iframe, isUltraviolet) {
         currentUrl = currentFrame.url;
       }
       
+      // Try to get page title and favicon from iframe
+      try {
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+        if (iframeDoc) {
+          pageTitle = iframeDoc.title || null;
+          
+          // Try to find favicon
+          const linkIcon = iframeDoc.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
+          if (linkIcon && linkIcon.href) {
+            favicon = linkIcon.href;
+          } else if (currentUrl) {
+            // Use default favicon location
+            try {
+              const urlObj = new URL(currentUrl);
+              favicon = urlObj.origin + '/favicon.ico';
+            } catch (e) {}
+          }
+        }
+      } catch (e) {
+        // Cross-origin, can't access document
+      }
+      
       // Update the nav URL bar if we got a valid URL
       if (currentUrl && currentUrl !== lastKnownUrl) {
         lastKnownUrl = currentUrl;
         if (typeof window.updateNavUrlBar === "function") {
           window.updateNavUrlBar(currentUrl);
         }
+      }
+      
+      // Update tab info if tab system is available
+      if (tabId !== undefined && typeof window.updateTabInfo === "function") {
+        window.updateTabInfo(tabId, {
+          url: currentUrl || undefined,
+          title: pageTitle || undefined,
+          favicon: favicon || undefined
+        });
       }
     } catch (e) {
       console.log("Error tracking URL:", e);
@@ -249,7 +285,7 @@ function setupUrlTracking(iframe, isUltraviolet) {
 }
 
 // Main function to load a URL through the proxy using Scramjet
-async function loadProxiedUrlScramjet(url) {
+async function loadProxiedUrlScramjet(url, tabId) {
   try {
     await registerScramjetSW();
   } catch (err) {
@@ -262,20 +298,41 @@ async function loadProxiedUrlScramjet(url) {
   await ensureTransportConfigured();
 
   const container = document.getElementById("container");
-  const existingIframe = document.getElementById("proxy-frame");
-
-  // Get the nav bar height from CSS variable
-  const navBarHeight = getComputedStyle(document.documentElement).getPropertyValue('--nav-bar-height') || '49px';
+  
+  // Get the active tab's iframe ID if tab system is available
+  let targetIframeId = null;
+  if (tabId !== undefined && typeof window.getTabById === "function") {
+    const tab = window.getTabById(tabId);
+    if (tab) {
+      targetIframeId = tab.iframeId || 'tab-iframe-' + tabId;
+    }
+  }
+  
+  // Find existing iframe for this tab or any proxy-frame
+  let existingIframe = targetIframeId ? document.getElementById(targetIframeId) : document.getElementById("proxy-frame");
 
   // Create scramjet frame
   const frame = scramjet.createFrame();
-  frame.frame.id = "proxy-frame";
+  const frameId = targetIframeId || "proxy-frame";
+  frame.frame.id = frameId;
   frame.frame.style.width = "100%";
-  frame.frame.style.height = `calc(100vh - ${navBarHeight})`;
+  frame.frame.style.height = "calc(100vh - var(--nav-bar-height) - var(--tab-bar-height))";
   frame.frame.style.border = "none";
+  frame.frame.style.display = "block";
 
   // Store reference
   currentFrame = frame;
+  if (tabId !== undefined) {
+    tabFrames.set(tabId, frame);
+    
+    // Update tab's iframeId
+    if (typeof window.getTabById === "function") {
+      const tab = window.getTabById(tabId);
+      if (tab) {
+        tab.iframeId = frameId;
+      }
+    }
+  }
 
   // Replace existing iframe
   if (existingIframe) {
@@ -293,14 +350,14 @@ async function loadProxiedUrlScramjet(url) {
   }
 
   // Setup URL change tracking for Scramjet
-  setupUrlTracking(frame.frame, false);
+  setupUrlTracking(frame.frame, false, tabId);
 
   // Navigate to URL
   frame.go(url);
 }
 
 // Main function to load a URL through Ultraviolet proxy
-async function loadProxiedUrlUltraviolet(url) {
+async function loadProxiedUrlUltraviolet(url, tabId) {
   // Verify Ultraviolet config is available
   if (typeof __uv$config === "undefined" || typeof __uv$config.encodeUrl !== "function") {
     alert("Ultraviolet proxy is not properly configured. Please refresh the page or switch to Scramjet.");
@@ -319,23 +376,43 @@ async function loadProxiedUrlUltraviolet(url) {
   }
 
   const container = document.getElementById("container");
-  let iframe = document.getElementById("proxy-frame");
-
-  // Get the nav bar height from CSS variable
-  const navBarHeight = getComputedStyle(document.documentElement).getPropertyValue('--nav-bar-height') || '49px';
+  
+  // Get the active tab's iframe ID if tab system is available
+  let targetIframeId = null;
+  if (tabId !== undefined && typeof window.getTabById === "function") {
+    const tab = window.getTabById(tabId);
+    if (tab) {
+      targetIframeId = tab.iframeId || 'tab-iframe-' + tabId;
+    }
+  }
+  
+  let iframe = targetIframeId ? document.getElementById(targetIframeId) : document.getElementById("proxy-frame");
 
   // Create or reuse iframe
   if (!iframe) {
     iframe = document.createElement("iframe");
-    iframe.id = "proxy-frame";
+    const frameId = targetIframeId || "proxy-frame";
+    iframe.id = frameId;
     iframe.style.width = "100%";
-    iframe.style.height = `calc(100vh - ${navBarHeight})`;
+    iframe.style.height = "calc(100vh - var(--nav-bar-height) - var(--tab-bar-height))";
     iframe.style.border = "none";
+    iframe.style.display = "block";
     container.appendChild(iframe);
+    
+    // Update tab's iframeId
+    if (tabId !== undefined && typeof window.getTabById === "function") {
+      const tab = window.getTabById(tabId);
+      if (tab) {
+        tab.iframeId = frameId;
+      }
+    }
   }
 
   // Store reference (for Ultraviolet we use a simple object wrapper)
   currentFrame = { frame: iframe, isUltraviolet: true };
+  if (tabId !== undefined) {
+    tabFrames.set(tabId, currentFrame);
+  }
 
   // Show iframe mode
   container.classList.add("iframe-active");
@@ -346,7 +423,7 @@ async function loadProxiedUrlUltraviolet(url) {
   }
 
   // Setup URL change tracking for Ultraviolet
-  setupUrlTracking(iframe, true);
+  setupUrlTracking(iframe, true, tabId);
 
   // Encode the URL and navigate
   const encodedUrl = __uv$config.prefix + __uv$config.encodeUrl(url);
@@ -354,14 +431,19 @@ async function loadProxiedUrlUltraviolet(url) {
 }
 
 // Main function to load a URL through the proxy (selects engine based on settings)
-async function loadProxiedUrl(url) {
+async function loadProxiedUrl(url, tabId) {
   const settings = getSettings();
   if (settings.proxyEngine === "ultraviolet") {
-    await loadProxiedUrlUltraviolet(url);
+    await loadProxiedUrlUltraviolet(url, tabId);
   } else {
-    await loadProxiedUrlScramjet(url);
+    await loadProxiedUrlScramjet(url, tabId);
   }
 }
+
+// Function to load URL in a specific tab (called from tab system)
+window.loadUrlInTab = async function(tabId, url) {
+  await loadProxiedUrl(url, tabId);
+};
 
 // Cookie rewriter system
 function setupCookieRewriter() {
@@ -596,11 +678,24 @@ document.addEventListener("DOMContentLoaded", () => {
     // Convert input to URL
     const url = search(input, "https://duckduckgo.com/?q=%s");
 
+    // Get active tab ID if tab system is available
+    const tabId = typeof window.getActiveTabId === "function" ? window.getActiveTabId() : undefined;
+    
+    // Update tab type to proxy if tab system is available
+    if (tabId !== undefined && typeof window.getTabById === "function") {
+      const tab = window.getTabById(tabId);
+      if (tab) {
+        tab.type = 'proxy';
+        tab.url = url;
+      }
+    }
+
     // Load through proxy
-    await loadProxiedUrl(url);
+    await loadProxiedUrl(url, tabId);
   };
 
-  // Go home function
+  // Go home function - this is overridden by the tab system in index.html
+  // but we keep it for fallback
   window.goHome = function () {
     const container = document.getElementById("container");
     container.classList.remove("iframe-active");
