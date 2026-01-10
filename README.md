@@ -1,6 +1,6 @@
 # Nova Framework
 
-A basic, primitive web proxy useing Scramjet and Ultravilot prioratizeing stability, embedability, utility, and functionality.
+A basic, web proxy useing Scramjet and Ultravilot prioratizeing stability, embedability, utility, and functionality.
 
 ## Deploy
 
@@ -33,3 +33,14 @@ npm dev
 - Fastify (http server)
 
 ## Site Support
+- Google
+- Wikipeda
+- Reddit
+- X (formerly twitter)
+- Youtube
+- TikTok
+- Facebook 
+- Crazygames
+- Eaglercraft
+- Twitch
+And may more!
