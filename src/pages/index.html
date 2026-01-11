@@ -1071,7 +1071,9 @@
       // TAB MANAGEMENT SYSTEM
       // ==========================================
       
-      // Tab data structure - exposed on window for cross-frame access
+      // Tab data structure - exposed on window for cross-frame access (same-origin only)
+      // Note: This is intentionally exposed for communication with same-origin iframes
+      // like settings.html. Cross-origin iframes cannot access these properties.
       const tabs = [];
       window.tabs = tabs;
       let activeTabId = null;

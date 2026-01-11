@@ -221,7 +221,7 @@
   </head>
   <body>
     <div class="header">
-      <button class="back-btn" title="Back to Home" onclick="goBack()">
+      <button type="button" class="back-btn" title="Back to Home" aria-label="Back to Home" onclick="goBack()">
         <svg
           xmlns="http://www.w3.org/2000/svg"
           class="icon icon-tabler icon-tabler-arrow-left"
@@ -444,15 +444,20 @@
 
         if (needsReload) {
           // Notify parent to reload with preserved tab state
+          let reloaded = false;
           if (window.parent && window.parent !== window) {
             try {
               if (typeof window.parent.reloadWithSettings === 'function') {
                 window.parent.reloadWithSettings();
+                reloaded = true;
               }
             } catch (e) {
               // Cross-origin or parent function not available
-              console.log('Could not notify parent of settings change');
             }
+          }
+          // Fallback: if parent reload not available, reload the page directly
+          if (!reloaded) {
+            window.location.reload();
           }
         }
       }
