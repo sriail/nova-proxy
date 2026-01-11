@@ -221,7 +221,7 @@
   </head>
   <body>
     <div class="header">
-      <a href="/" class="back-btn" title="Back to Home">
+      <button class="back-btn" title="Back to Home" onclick="goBack()">
         <svg
           xmlns="http://www.w3.org/2000/svg"
           class="icon icon-tabler icon-tabler-arrow-left"
@@ -238,7 +238,7 @@
           <path d="M5 12l6 6" />
           <path d="M5 12l6 -6" />
         </svg>
-      </a>
+      </button>
       <h1>Settings</h1>
     </div>
     <div class="container">
@@ -419,6 +419,11 @@
         const adBlock = document.getElementById("ad-block").checked;
         const theme = getSelectedRadioValue("theme", "system");
 
+        // Get old values to check if anything changed that requires reload
+        const oldWispServer = localStorage.getItem("nova-wisp-server") || "";
+        const oldProxyEngine = localStorage.getItem("nova-proxy-engine") || "scramjet";
+        const oldTheme = localStorage.getItem(THEME_KEY) || "system";
+
         localStorage.setItem("nova-wisp-server", wispServer);
         localStorage.setItem("nova-proxy-engine", proxyEngine);
         localStorage.setItem("nova-ad-block", adBlock.toString());
@@ -429,6 +434,43 @@
         setTimeout(() => {
           message.classList.remove("show");
         }, 2000);
+
+        // Check if critical settings changed that require reload
+        const needsReload = (
+          wispServer !== oldWispServer ||
+          proxyEngine !== oldProxyEngine ||
+          theme !== oldTheme
+        );
+
+        if (needsReload) {
+          // Notify parent to reload with preserved tab state
+          if (window.parent && window.parent !== window) {
+            try {
+              if (typeof window.parent.reloadWithSettings === 'function') {
+                window.parent.reloadWithSettings();
+              }
+            } catch (e) {
+              // Cross-origin or parent function not available
+              console.log('Could not notify parent of settings change');
+            }
+          }
+        }
+      }
+
+      // Go back to home - notify parent if in iframe
+      function goBack() {
+        if (window.parent && window.parent !== window) {
+          try {
+            if (typeof window.parent.goHome === 'function') {
+              window.parent.goHome();
+              return;
+            }
+          } catch (e) {
+            // Cross-origin or parent function not available
+          }
+        }
+        // Fallback: navigate to home page directly
+        window.location.href = '/';
       }
     </script>
   </body>

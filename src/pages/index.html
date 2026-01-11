@@ -1071,9 +1071,14 @@
       // TAB MANAGEMENT SYSTEM
       // ==========================================
       
-      // Tab data structure
+      // Tab data structure - exposed on window for cross-frame access
       const tabs = [];
+      window.tabs = tabs;
       let activeTabId = null;
+      Object.defineProperty(window, 'activeTabId', {
+        get: () => activeTabId,
+        set: (val) => { activeTabId = val; }
+      });
       let tabIdCounter = 0;
       let draggedTab = null;
       
@@ -1582,7 +1587,8 @@
       // Override goHome to go to home in current tab
       const originalGoHome = window.goHome;
       window.goHome = function() {
-        const tab = tabs.find(t => t.id === activeTabId);
+        // Use window.tabs and window.activeTabId for cross-frame compatibility
+        const tab = window.tabs.find(t => t.id === window.activeTabId);
         if (tab) {
           tab.type = 'home';
           tab.url = '';
@@ -1597,8 +1603,18 @@
           }
           
           renderTabs();
-          switchToTab(activeTabId);
+          switchToTab(window.activeTabId);
         }
+      };
+      
+      // Reload with settings - saves tab state and reloads page to apply new settings
+      window.reloadWithSettings = function() {
+        // Save current tab state before reload
+        saveTabsToStorage();
+        
+        // Reload the page to apply new settings
+        // The tab state will be restored from localStorage on reload
+        window.location.reload();
       };
       
       // Initialize tabs on page load

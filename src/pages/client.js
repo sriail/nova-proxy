@@ -823,23 +823,25 @@ document.addEventListener("DOMContentLoaded", () => {
     await loadProxiedUrl(url, tabId);
   };
 
-  // Go home function - this is overridden by the tab system in index.html
-  // but we keep it for fallback
-  window.goHome = function () {
-    const container = document.getElementById("container");
-    container.classList.remove("iframe-active");
-    urlInput.value = "";
-    currentFrame = null;
+  // Go home function - only define if not already overridden by the tab system
+  // The tab system in index.html may override this before DOMContentLoaded
+  if (typeof window.goHome !== "function") {
+    window.goHome = function () {
+      const container = document.getElementById("container");
+      container.classList.remove("iframe-active");
+      urlInput.value = "";
+      currentFrame = null;
 
-    // Clear the nav URL bar
-    if (typeof window.updateNavUrlBar === "function") {
-      window.updateNavUrlBar("");
-    }
+      // Clear the nav URL bar
+      if (typeof window.updateNavUrlBar === "function") {
+        window.updateNavUrlBar("");
+      }
 
-    // Remove and reset the iframe for a cleaner state
-    const iframe = document.getElementById("proxy-frame");
-    if (iframe) {
-      iframe.remove();
-    }
-  };
+      // Remove and reset the iframe for a cleaner state
+      const iframe = document.getElementById("proxy-frame");
+      if (iframe) {
+        iframe.remove();
+      }
+    };
+  }
 });
