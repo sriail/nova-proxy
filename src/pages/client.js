@@ -407,6 +407,53 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
     }
   });
   
+  // Listen for context initialization to intercept window.open inside the proxied frame
+  scramjetFrame.addEventListener("contextInit", function(event) {
+    try {
+      const proxiedWindow = event.window;
+      if (!proxiedWindow) return;
+      
+      // Save the original window.open from the proxied context
+      const originalOpen = proxiedWindow.open;
+      
+      // Override window.open in the proxied context
+      proxiedWindow.open = function(url, target, features) {
+        // Check if tab system is available
+        if (typeof window.openUrlInNewTab !== 'function') {
+          // Fall back to original behavior if tab system not available
+          return originalOpen.call(proxiedWindow, url, target, features);
+        }
+        
+        // Handle about:blank or empty URL - create a new home tab
+        if (!url || url === 'about:blank') {
+          console.log("Intercepted proxied window.open for empty/about:blank, opening new home tab");
+          window.openUrlInNewTab('');
+          return null;
+        }
+        
+        // Resolve relative URLs against the current proxied URL
+        let resolvedUrl;
+        try {
+          if (scramjetFrame.url) {
+            resolvedUrl = new URL(url, scramjetFrame.url.toString()).toString();
+          } else {
+            resolvedUrl = new URL(url, proxiedWindow.location.href).toString();
+          }
+        } catch (e) {
+          resolvedUrl = url;
+        }
+        
+        console.log("Intercepted proxied window.open, opening in new tab:", resolvedUrl);
+        window.openUrlInNewTab(resolvedUrl);
+        return null;
+      };
+      
+      console.log("Window.open interception set up for proxied frame");
+    } catch (e) {
+      console.log("Error setting up window.open interception in proxied frame:", e);
+    }
+  });
+  
   // Also listen for iframe load events as a fallback for initial load
   scramjetFrame.frame.addEventListener("load", function() {
     try {
