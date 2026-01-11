@@ -798,12 +798,42 @@ function setupAdBlocker() {
   }
 }
 
-// Window.open injection - redirect new windows to main iframe
+// Window.open injection - redirect new windows/tabs to the site's tab system
 function setupWindowOpenInjection() {
   const originalOpen = window.open;
 
   window.open = function (url, target, features) {
-    // If we have a current frame and this is a new window/tab request
+    // Handle about:blank or empty URL - create a new home tab
+    if (!url || url === 'about:blank') {
+      console.log("Intercepted window.open for empty/about:blank, opening new home tab");
+      if (typeof window.openUrlInNewTab === 'function') {
+        window.openUrlInNewTab('');
+        return null;
+      }
+    }
+    
+    // If we have the tab system available, open in a new tab
+    if (typeof window.openUrlInNewTab === 'function' && url) {
+      // Resolve relative URLs
+      let resolvedUrl;
+      try {
+        // Try to resolve against the current proxied URL if available
+        if (currentFrame && currentFrame.url) {
+          resolvedUrl = new URL(url, currentFrame.url.toString()).toString();
+        } else {
+          resolvedUrl = new URL(url, location.href).toString();
+        }
+      } catch (e) {
+        resolvedUrl = url;
+      }
+
+      // Open in a new tab within the site's tab system
+      console.log("Intercepted window.open, opening in new tab:", resolvedUrl);
+      window.openUrlInNewTab(resolvedUrl);
+      return null;
+    }
+    
+    // If we have a current frame but no tab system, navigate the current frame (legacy behavior)
     if (currentFrame && url) {
       // Resolve relative URLs
       let resolvedUrl;

@@ -1561,6 +1561,34 @@
         // We just need to prepare the tab state
       };
       
+      // Open a URL in a new tab (used by window.open interception)
+      // Returns the new tab ID for tracking
+      window.openUrlInNewTab = function(url) {
+        // If no URL or empty URL, create a home tab
+        if (!url) {
+          const tab = createTabData('home', '', 'New Tab');
+          tabs.push(tab);
+          renderTabs();
+          switchToTab(tab.id);
+          saveTabsToStorage();
+          return tab.id;
+        }
+        
+        // Create a new proxy tab with the URL
+        const tab = createTabData('proxy', url, '');
+        tabs.push(tab);
+        renderTabs();
+        switchToTab(tab.id);
+        saveTabsToStorage();
+        
+        // Load the URL in the new tab
+        if (window.loadUrlInTab) {
+          window.loadUrlInTab(tab.id, url);
+        }
+        
+        return tab.id;
+      };
+      
       // Storage functions
       function saveTabsToStorage() {
         const data = {
