@@ -57,3 +57,17 @@ And more
 *Not all varafication cookies will work or function properley and errors can occur.
 
 †Recaptha and Hcaptha Supported on Scramjet proxy, However, Ultravilot may struggle, especialy with a heavley traficed wisp server.
+
+## Planed Updates and Roadmap
+
+- [ ] Add Full Varifacation Support
+- [ ] Add Wisp Server Rotation
+- [ ] Add Personal Wisp Server/ Static Server System
+- [ ] Update Favicon System
+- [ ] Potentialy add Bare Server Support (Possibley)
+- [ ] Add Autopilot Mode (audomatic Proxy swiching with a JS or JSON config)
+- [ ] Add Varified Site Config (Possibley)
+- [ ] Update UI
+- [ ] Add Bookmarks
+- [ ] Add subblt icons (audio playing, ect)
+- [ ] Fully implament conplex error page
