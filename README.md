@@ -46,12 +46,13 @@ npm dev
 
 And may more!
 ## System/ Varification Support 
-- Recaptha
-- Hcaptha
+- Recaptha†
+- Hcaptha†
 - Yandex Cloud
 - Cloudflare (comming soon)
 - Varfication cookies*
 
 And more
 
-*not all varafication cookies will work or function properley and errors can occur 
+*Not all varafication cookies will work or function properley and errors can occur.
+†Recaptha and Hcaptha Supported on Scramjet proxy, However, Ultravilot may struggle, especialy with a heavley traficed wisp server.
