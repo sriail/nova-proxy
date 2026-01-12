@@ -56,6 +56,8 @@ function getSettings() {
     wispServer: localStorage.getItem("nova-wisp-server") || "",
     proxyEngine: localStorage.getItem("nova-proxy-engine") || "scramjet",
     adBlock: localStorage.getItem("nova-ad-block") === "true",
+    // Preserve cookies defaults to true if not set
+    preserveCookies: localStorage.getItem("nova-preserve-cookies") !== "false",
   };
 }
 
@@ -1227,24 +1229,29 @@ function isVerificationCookie(cookieName) {
 }
 
 // Preserve verification cookies by extending their path and removing restrictions
+// When preserveCookies setting is enabled, all cookies are preserved
 function preserveVerificationCookie(cookieString) {
+  const settings = getSettings();
+  
   // Parse the cookie to check if it's a verification cookie
   const parts = cookieString.split(";");
   const nameValue = parts[0].split("=");
   const cookieName = nameValue[0].trim();
   
-  if (!isVerificationCookie(cookieName)) {
-    return cookieString; // Not a verification cookie, return as-is
+  // If preserve all cookies is enabled, apply preservation to all cookies
+  // Otherwise, only preserve verification cookies
+  if (!settings.preserveCookies && !isVerificationCookie(cookieName)) {
+    return cookieString; // Not a verification cookie and preservation disabled, return as-is
   }
   
-  // Ensure verification cookies have broad path and proper settings
+  // Ensure cookies have broad path and proper settings for cross-domain functionality
   let modified = cookieString;
   
   // Remove restrictive path and set to root
   modified = modified.replace(/;\s*path=[^;]+/gi, "");
   modified += "; path=/";
   
-  // Ensure SameSite is set appropriately for verification cookies
+  // Ensure SameSite is set appropriately for cookies
   if (!/;\s*samesite=/i.test(modified)) {
     modified += "; SameSite=None";
   }

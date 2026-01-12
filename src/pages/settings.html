@@ -301,6 +301,15 @@
             </span>
           </label>
         </div>
+        <div class="setting-item">
+          <label class="checkbox-option">
+            <input type="checkbox" id="preserve-cookies" checked />
+            <span class="checkbox-label">
+              <strong>Preserve All Cookies</strong>
+              <span>Keep all cookies from proxied sites to maintain original site functionality (login sessions, preferences, verification cookies)</span>
+            </span>
+          </label>
+        </div>
       </div>
       <div class="settings-section">
         <h2>Proxy Engine</h2>
@@ -355,10 +364,13 @@
         const wispServer = localStorage.getItem("nova-wisp-server") || "";
         const proxyEngine = localStorage.getItem("nova-proxy-engine") || "scramjet";
         const adBlock = localStorage.getItem("nova-ad-block") === "true";
+        // Preserve cookies defaults to true if not set
+        const preserveCookies = localStorage.getItem("nova-preserve-cookies") !== "false";
         const theme = localStorage.getItem(THEME_KEY) || "system";
 
         document.getElementById("wisp-server").value = wispServer;
         document.getElementById("ad-block").checked = adBlock;
+        document.getElementById("preserve-cookies").checked = preserveCookies;
 
         // Apply current theme
         applyTheme(theme);
@@ -417,6 +429,7 @@
         const wispServer = document.getElementById("wisp-server").value.trim();
         const proxyEngine = getSelectedRadioValue("proxy-engine", "scramjet");
         const adBlock = document.getElementById("ad-block").checked;
+        const preserveCookies = document.getElementById("preserve-cookies").checked;
         const theme = getSelectedRadioValue("theme", "system");
 
         // Get old values to check if anything changed that requires reload
@@ -427,6 +440,7 @@
         localStorage.setItem("nova-wisp-server", wispServer);
         localStorage.setItem("nova-proxy-engine", proxyEngine);
         localStorage.setItem("nova-ad-block", adBlock.toString());
+        localStorage.setItem("nova-preserve-cookies", preserveCookies.toString());
         localStorage.setItem(THEME_KEY, theme);
 
         const message = document.getElementById("save-message");
