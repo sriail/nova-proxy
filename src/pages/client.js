@@ -267,21 +267,49 @@ async function fetchFaviconAsDataUrl(faviconUrl) {
   }
   
   try {
-    // Fetch the favicon through the proxy URL
-    const response = await fetch(faviconUrl, {
-      mode: 'cors',
-      credentials: 'omit',
-      cache: 'force-cache'
-    });
+    // First try with no-cors mode (for same-origin proxy URLs)
+    let response;
+    try {
+      response = await fetch(faviconUrl, {
+        mode: 'cors',
+        credentials: 'omit',
+        cache: 'force-cache'
+      });
+    } catch (corsError) {
+      // If CORS fails, try no-cors mode
+      try {
+        response = await fetch(faviconUrl, {
+          mode: 'no-cors',
+          credentials: 'omit',
+          cache: 'force-cache'
+        });
+      } catch (e) {
+        console.log("Favicon fetch failed:", e.message);
+        return null;
+      }
+    }
+    
+    // For no-cors responses, we can't check status or read body properly
+    // So we need to handle opaque responses - return null and caller will use URL directly
+    if (response.type === 'opaque') {
+      return null;
+    }
     
     if (!response.ok) {
+      console.log("Favicon fetch returned status:", response.status);
       return null;
     }
     
     const blob = await response.blob();
     
-    // Only process image types
-    if (!blob.type.startsWith('image/')) {
+    // Only process image types, but also accept empty type (some servers don't set it)
+    if (blob.type && !blob.type.startsWith('image/') && blob.type !== 'application/octet-stream') {
+      console.log("Favicon blob is not an image:", blob.type);
+      return null;
+    }
+    
+    // Check if blob has content
+    if (blob.size === 0) {
       return null;
     }
     
@@ -301,7 +329,7 @@ async function fetchFaviconAsDataUrl(faviconUrl) {
       reader.readAsDataURL(blob);
     });
   } catch (e) {
-    console.log("Error fetching favicon:", e);
+    console.log("Error fetching favicon:", e.message);
     return null;
   }
 }
@@ -374,23 +402,18 @@ function extractPageInfo(iframe, currentUrl) {
         const rel = (link.getAttribute('rel') || '').toLowerCase();
         // Check for various icon rel values
         if (rel.includes('icon')) {
-          // Get the href attribute directly (not the resolved href property)
-          // to better handle relative URLs
-          const hrefAttr = link.getAttribute('href');
-          if (hrefAttr) {
-            // Extract original URL and encode through proxy
-            const originalUrl = extractOriginalFaviconUrl(link.href, currentUrl) || 
-                               (currentUrl ? new URL(hrefAttr, currentUrl).toString() : null);
-            if (originalUrl) {
-              faviconUrl = encodeProxyUrl(originalUrl);
-              if (faviconUrl) break;
-            }
+          // Use the resolved href property directly - it's already a valid URL
+          // that the browser can access (either proxied or absolute)
+          if (link.href) {
+            faviconUrl = link.href;
+            break;
           }
         }
       }
     }
   } catch (e) {
-    // Cross-origin, can't access document
+    // Cross-origin, can't access document - try fallback
+    console.log("Cannot access iframe document for favicon:", e.message);
   }
   
   // If no favicon found from link element, try default location using the original URL
@@ -418,6 +441,9 @@ const FAVICON_RETRY_DELAY_MS = 500;
 
 // Maximum number of retries for favicon extraction
 const MAX_FAVICON_RETRIES = 2;
+
+// Delay for navigation event handlers to allow URL to update
+const NAVIGATION_CHECK_DELAY_MS = 50;
 
 // Track pending favicon retries to prevent overlapping attempts
 const pendingFaviconRetries = new Map();
@@ -702,8 +728,11 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
 
 // Setup URL tracking for iframe navigation changes (for Ultraviolet)
 function setupUrlTracking(iframe, isUltraviolet, tabId) {
-  // Listen for iframe load events
-  iframe.addEventListener("load", function() {
+  // Track last known URL to avoid duplicate updates
+  let lastTrackedUrl = null;
+  
+  // Function to update page info with current URL
+  function updateCurrentPageInfo() {
     try {
       // Try to get the current URL from the iframe
       let currentUrl = null;
@@ -714,19 +743,144 @@ function setupUrlTracking(iframe, isUltraviolet, tabId) {
         currentUrl = decodeProxyUrl(iframeLocation, isUltraviolet);
       }
       
-      // For Ultraviolet, set up window.open interception in the iframe
-      if (isUltraviolet) {
-        setupUltravioletWindowOpenInterception(iframe, currentUrl);
+      // Only update if URL actually changed
+      if (currentUrl && currentUrl !== lastTrackedUrl) {
+        lastTrackedUrl = currentUrl;
+        
+        // Delay to allow content to be ready before extracting page info
+        setTimeout(() => {
+          updatePageInfo(tabId, currentUrl, iframe);
+        }, PAGE_INFO_DELAY_MS);
+      } else if (currentUrl === lastTrackedUrl) {
+        // URL is the same, but title/favicon might have changed (SPA navigation)
+        setTimeout(() => {
+          updatePageInfo(tabId, currentUrl, iframe);
+        }, PAGE_INFO_DELAY_MS);
       }
-      
-      // Delay to allow content to be ready before extracting page info
-      setTimeout(() => {
-        updatePageInfo(tabId, currentUrl, iframe);
-      }, PAGE_INFO_DELAY_MS);
     } catch (e) {
       console.log("Error tracking URL:", e);
     }
+  }
+  
+  // Listen for iframe load events
+  iframe.addEventListener("load", function() {
+    try {
+      // Get current URL
+      let currentUrl = null;
+      const iframeLocation = getIframeLocationUrl(iframe);
+      if (iframeLocation) {
+        currentUrl = decodeProxyUrl(iframeLocation, isUltraviolet);
+      }
+      
+      // For Ultraviolet, set up additional event listeners in the iframe
+      if (isUltraviolet) {
+        setupUltravioletWindowOpenInterception(iframe, currentUrl);
+        setupUltravioletNavigationTracking(iframe, tabId);
+      }
+      
+      // Update page info
+      updateCurrentPageInfo();
+    } catch (e) {
+      console.log("Error on iframe load:", e);
+    }
   });
+}
+
+// Setup navigation tracking for Ultraviolet iframe (handles SPA navigation)
+function setupUltravioletNavigationTracking(iframe, tabId) {
+  try {
+    const iframeWindow = iframe.contentWindow;
+    if (!iframeWindow) return;
+    
+    // Track last known URL for this iframe
+    let lastKnownIframeUrl = null;
+    
+    // Function to check and update URL
+    function checkAndUpdateUrl() {
+      try {
+        const iframeLocation = getIframeLocationUrl(iframe);
+        if (iframeLocation) {
+          const currentUrl = decodeProxyUrl(iframeLocation, true);
+          if (currentUrl && currentUrl !== lastKnownIframeUrl) {
+            lastKnownIframeUrl = currentUrl;
+            setTimeout(() => {
+              updatePageInfo(tabId, currentUrl, iframe);
+            }, PAGE_INFO_DELAY_MS);
+          }
+        }
+      } catch (e) {
+        // Cross-origin or other error
+      }
+    }
+    
+    // Listen for popstate events (back/forward navigation)
+    iframeWindow.addEventListener('popstate', function() {
+      setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+    });
+    
+    // Listen for hashchange events
+    iframeWindow.addEventListener('hashchange', function() {
+      setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+    });
+    
+    // Override history.pushState and history.replaceState to catch SPA navigation
+    const originalPushState = iframeWindow.history.pushState;
+    const originalReplaceState = iframeWindow.history.replaceState;
+    
+    iframeWindow.history.pushState = function(...args) {
+      const result = originalPushState.apply(this, args);
+      setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+      return result;
+    };
+    
+    iframeWindow.history.replaceState = function(...args) {
+      const result = originalReplaceState.apply(this, args);
+      setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+      return result;
+    };
+    
+    // Also watch for title changes using MutationObserver
+    try {
+      const iframeDoc = iframe.contentDocument || iframeWindow.document;
+      if (iframeDoc) {
+        const titleElement = iframeDoc.querySelector('title');
+        if (titleElement) {
+          const observer = new MutationObserver(function() {
+            setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+          });
+          observer.observe(titleElement, { childList: true, characterData: true, subtree: true });
+        }
+        
+        // Also observe head for new link elements (favicon changes)
+        const headElement = iframeDoc.head;
+        if (headElement) {
+          const headObserver = new MutationObserver(function(mutations) {
+            for (const mutation of mutations) {
+              if (mutation.type === 'childList') {
+                for (const node of mutation.addedNodes) {
+                  // Check if node is an element before accessing tagName
+                  if (node.nodeType === Node.ELEMENT_NODE && 
+                      node.tagName === 'LINK' && 
+                      node.rel && 
+                      node.rel.toLowerCase().includes('icon')) {
+                    setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+                    return;
+                  }
+                }
+              }
+            }
+          });
+          headObserver.observe(headElement, { childList: true });
+        }
+      }
+    } catch (e) {
+      // Cross-origin restriction
+    }
+    
+    console.log("UV: Navigation tracking set up for Ultraviolet iframe");
+  } catch (e) {
+    console.log("UV: Error setting up navigation tracking:", e);
+  }
 }
 
 // Setup window.open interception for Ultraviolet iframe
