@@ -1,8 +1,11 @@
 "use strict";
 
 // Configuration constants
-// Use epoxy transport v2.1.28 for better SharedWorker compatibility and proper headers handling
-const TRANSPORT_PATH = "/epoxy/index.mjs";
+// Transport paths for different proxy engines
+// libcurl-transport works better with WebSocket-heavy sites (games, etc.)
+const LIBCURL_TRANSPORT_PATH = "/libcurl/index.mjs";
+// epoxy-transport for Ultraviolet (broader compatibility)
+const EPOXY_TRANSPORT_PATH = "/epoxy/index.mjs";
 
 // Scramjet URL prefix for proxy routes
 const SCRAMJET_PREFIX = "/scram/";
@@ -16,14 +19,31 @@ const swAllowedHostnames = ["localhost", "127.0.0.1"];
 // Cache transport configuration to avoid redundant setup
 let transportConfigured = false;
 let lastWispUrl = null;
+let lastTransportPath = null;
 let transportConfigPromise = null;
+
+// Get the appropriate transport path based on settings
+function getTransportPath() {
+  const settings = getSettings();
+  
+  // If using preferred transport, select based on proxy engine
+  if (settings.usePreferredTransport) {
+    // Use libcurl for Scramjet (better WebSocket support for games)
+    // Use epoxy for Ultraviolet (broader compatibility)
+    return settings.proxyEngine === "ultraviolet" ? EPOXY_TRANSPORT_PATH : LIBCURL_TRANSPORT_PATH;
+  }
+  
+  // Otherwise use the manually selected transport
+  return settings.transport === "epoxy" ? EPOXY_TRANSPORT_PATH : LIBCURL_TRANSPORT_PATH;
+}
 
 // Shared function to configure transport (with deduplication)
 async function ensureTransportConfigured() {
   const wispUrl = getWispUrl();
+  const transportPath = getTransportPath();
   
-  // If already configured with the same URL, return immediately
-  if (transportConfigured && lastWispUrl === wispUrl) {
+  // If already configured with the same URL and transport, return immediately
+  if (transportConfigured && lastWispUrl === wispUrl && lastTransportPath === transportPath) {
     return;
   }
   
@@ -37,11 +57,17 @@ async function ensureTransportConfigured() {
   transportConfigPromise = (async () => {
     try {
       const currentTransport = await connection.getTransport();
-      if (currentTransport !== TRANSPORT_PATH || lastWispUrl !== wispUrl) {
-        await connection.setTransport(TRANSPORT_PATH, [{ wisp: wispUrl }]);
+      if (currentTransport !== transportPath || lastWispUrl !== wispUrl) {
+        // Use 'websocket' parameter for libcurl, 'wisp' for epoxy
+        if (transportPath === LIBCURL_TRANSPORT_PATH) {
+          await connection.setTransport(transportPath, [{ websocket: wispUrl }]);
+        } else {
+          await connection.setTransport(transportPath, [{ wisp: wispUrl }]);
+        }
       }
       transportConfigured = true;
       lastWispUrl = wispUrl;
+      lastTransportPath = transportPath;
     } finally {
       transportConfigPromise = null;
     }
@@ -56,6 +82,12 @@ function getSettings() {
     wispServer: localStorage.getItem("nova-wisp-server") || "",
     proxyEngine: localStorage.getItem("nova-proxy-engine") || "scramjet",
     adBlock: localStorage.getItem("nova-ad-block") === "true",
+    // Preserve cookies defaults to true if not set
+    preserveCookies: localStorage.getItem("nova-preserve-cookies") !== "false",
+    // Use preferred transport defaults to true if not set
+    usePreferredTransport: localStorage.getItem("nova-use-preferred-transport") !== "false",
+    // Transport defaults to libcurl
+    transport: localStorage.getItem("nova-transport") || "libcurl",
   };
 }
 
@@ -716,6 +748,9 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
         // URL property might not be available yet
       }
       
+      // Setup verification cookie handler for the iframe
+      setupVerificationCookieHandler(scramjetFrame.frame);
+      
       // Delay to allow the page content to be ready
       setTimeout(() => {
         updatePageInfo(tabId, currentUrl, scramjetFrame.frame);
@@ -777,6 +812,9 @@ function setupUrlTracking(iframe, isUltraviolet, tabId) {
         setupUltravioletWindowOpenInterception(iframe, currentUrl);
         setupUltravioletNavigationTracking(iframe, tabId);
       }
+      
+      // Setup verification cookie handler for the iframe
+      setupVerificationCookieHandler(iframe);
       
       // Update page info
       updateCurrentPageInfo();
@@ -1189,6 +1227,316 @@ function setupCookieRewriter() {
   }
 }
 
+// ============================================
+// Browser Verification and Cloudflare Support
+// ============================================
+
+// Cloudflare and browser verification cookie names that must be preserved
+const VERIFICATION_COOKIES = [
+  "cf_clearance",      // Cloudflare clearance cookie
+  "__cf_bm",           // Cloudflare bot management
+  "_cf_bm",            // Alternative Cloudflare bot management
+  "cf_chl_prog",       // Cloudflare challenge progress
+  "cf_chl_rc_ni",      // Cloudflare challenge recaptcha
+  "cf_chl_seq_",       // Cloudflare challenge sequence
+  "__cfruid",          // Cloudflare rate limiting UID
+  "__cfwaitingroom",   // Cloudflare waiting room
+  "_cfuvid",           // Cloudflare unique visitor ID
+  // hCaptcha related
+  "hc_accessibility",
+  // reCAPTCHA related
+  "_GRECAPTCHA",
+  // Turnstile related
+  "cf_turnstile_"
+];
+
+// Check if a cookie name is a verification cookie
+function isVerificationCookie(cookieName) {
+  const name = cookieName.toLowerCase().trim();
+  return VERIFICATION_COOKIES.some(vcookie => 
+    name === vcookie.toLowerCase() || name.startsWith(vcookie.toLowerCase())
+  );
+}
+
+// Preserve verification cookies by extending their path and removing restrictions
+// When preserveCookies setting is enabled, all cookies are preserved
+function preserveVerificationCookie(cookieString) {
+  const settings = getSettings();
+  
+  // Parse the cookie to check if it's a verification cookie
+  const parts = cookieString.split(";");
+  const nameValue = parts[0].split("=");
+  const cookieName = nameValue[0].trim();
+  
+  // If preserve all cookies is enabled, apply preservation to all cookies
+  // Otherwise, only preserve verification cookies
+  if (!settings.preserveCookies && !isVerificationCookie(cookieName)) {
+    return cookieString; // Not a verification cookie and preservation disabled, return as-is
+  }
+  
+  // Ensure cookies have broad path and proper settings for cross-domain functionality
+  let modified = cookieString;
+  
+  // Remove restrictive path and set to root
+  modified = modified.replace(/;\s*path=[^;]+/gi, "");
+  modified += "; path=/";
+  
+  // Ensure SameSite is set appropriately for cookies
+  if (!/;\s*samesite=/i.test(modified)) {
+    modified += "; SameSite=None";
+  }
+  
+  // Ensure Secure flag is set if on HTTPS
+  if (location.protocol === "https:" && !/;\s*secure/i.test(modified)) {
+    modified += "; Secure";
+  }
+  
+  return modified;
+}
+
+// Setup browser verification support
+function setupBrowserVerification() {
+  // Ensure navigator properties look like a real browser
+  // This helps pass basic browser verification checks
+  
+  // Preserve webdriver detection - ensure we don't look like automated
+  try {
+    // Only modify if webdriver is detected as true (indicating automation)
+    if (navigator.webdriver === true) {
+      Object.defineProperty(navigator, "webdriver", {
+        get: () => false,
+        configurable: true
+      });
+    }
+  } catch (e) {
+    // Property might not be configurable in some browsers
+  }
+  
+  // Ensure plugins array looks normal (some verification checks this)
+  try {
+    if (navigator.plugins.length === 0) {
+      // Create a generic mock plugins array to appear more like a real browser
+      // Uses generic PDF viewer plugin which is common across browsers
+      const mockPlugins = {
+        length: 1,
+        item: (index) => mockPlugins[index],
+        namedItem: (name) => mockPlugins[0],
+        refresh: () => {},
+        0: { name: "PDF Viewer", filename: "internal-pdf-viewer", description: "Portable Document Format" }
+      };
+      Object.defineProperty(navigator, "plugins", {
+        get: () => mockPlugins,
+        configurable: true
+      });
+    }
+  } catch (e) {
+    // Property might not be configurable
+  }
+  
+  // Ensure languages look normal
+  try {
+    if (!navigator.languages || navigator.languages.length === 0) {
+      Object.defineProperty(navigator, "languages", {
+        get: () => ["en-US", "en"],
+        configurable: true
+      });
+    }
+  } catch (e) {
+    // Property might not be configurable
+  }
+}
+
+// Allowed Cloudflare domains for challenge scripts
+const CLOUDFLARE_DOMAINS = [
+  "challenges.cloudflare.com",
+  "static.cloudflareinsights.com",
+  "cloudflare.com"
+];
+
+// Safely validate if a URL is from a Cloudflare domain
+function isCloudflareScriptUrl(src) {
+  if (!src) return false;
+  
+  try {
+    // Parse the URL properly
+    const url = new URL(src, location.origin);
+    const hostname = url.hostname.toLowerCase();
+    
+    // Check if the hostname matches or is a subdomain of allowed domains
+    return CLOUDFLARE_DOMAINS.some(domain => 
+      hostname === domain || hostname.endsWith("." + domain)
+    );
+  } catch (e) {
+    // Invalid URL, not a Cloudflare script
+    return false;
+  }
+}
+
+// Setup Cloudflare-specific handling
+function setupCloudflareSupport() {
+  // Listen for Cloudflare challenge page detection
+  // Cloudflare challenges typically include specific elements or scripts
+  
+  // Monitor for iframe load events to detect CF challenges
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          // Check for Cloudflare Turnstile widget
+          if (node.classList && (
+            node.classList.contains("cf-turnstile") ||
+            node.classList.contains("cf-challenge") ||
+            node.id === "cf-wrapper" ||
+            node.id === "challenge-form"
+          )) {
+            handleCloudflareChallenge(node);
+          }
+          
+          // Check for scripts that might be Cloudflare challenges
+          if (node.tagName === "SCRIPT") {
+            const src = node.getAttribute("src") || "";
+            // Properly validate that the script is from Cloudflare domains
+            if (isCloudflareScriptUrl(src)) {
+              // Allow the script to run - it's a verification challenge
+              console.log("Nova: Cloudflare challenge script detected");
+            }
+          }
+        }
+      });
+    });
+  });
+  
+  // Start observing document for Cloudflare elements
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener("DOMContentLoaded", () => {
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+  }
+  
+  // Override fetch to handle Cloudflare challenge responses
+  const originalFetch = window.fetch;
+  window.fetch = async function(...args) {
+    try {
+      const response = await originalFetch.apply(this, args);
+      
+      // Check for Cloudflare challenge response using CF-specific headers
+      const cfRay = response.headers.get("cf-ray");
+      const cfChallenge = response.headers.get("cf-mitigated");
+      
+      // Only log if this is actually a Cloudflare response (has CF-Ray header)
+      // and is a challenge response (cf-mitigated header or specific status with cf-ray)
+      if (cfRay && (cfChallenge === "challenge" || 
+          ((response.status === 403 || response.status === 503) && cfChallenge))) {
+        // This is a Cloudflare challenge, let it proceed normally
+        // The challenge page will handle verification
+        console.log("Nova: Cloudflare challenge response detected (CF-Ray:", cfRay, ")");
+      }
+      
+      return response;
+    } catch (error) {
+      throw error;
+    }
+  };
+}
+
+// Handle detected Cloudflare challenge elements
+function handleCloudflareChallenge(element) {
+  console.log("Nova: Cloudflare challenge detected, allowing verification");
+  
+  // Ensure the challenge element has proper styling to be visible
+  // Some challenges might be hidden or have z-index issues in proxy context
+  if (element.style) {
+    // Ensure visibility
+    element.style.visibility = "visible";
+    element.style.opacity = "1";
+    
+    // Ensure proper z-index for overlay challenges
+    if (element.id === "cf-wrapper" || element.classList.contains("cf-challenge")) {
+      element.style.zIndex = "999999";
+      element.style.position = "relative";
+    }
+  }
+  
+  // Find and ensure any forms within the challenge are submittable
+  const forms = element.querySelectorAll("form");
+  forms.forEach((form) => {
+    // Ensure form action is not blocked
+    form.addEventListener("submit", (e) => {
+      console.log("Nova: Cloudflare verification form submitted");
+      // Let the form submit normally
+    });
+  });
+  
+  // Look for Turnstile widget and ensure it's properly initialized
+  const turnstileWidgets = element.querySelectorAll(".cf-turnstile, [data-turnstile-callback]");
+  turnstileWidgets.forEach((widget) => {
+    console.log("Nova: Turnstile widget found, ensuring proper initialization");
+    // Turnstile should self-initialize, but we ensure it's visible
+    widget.style.display = "block";
+    widget.style.visibility = "visible";
+  });
+}
+
+// Enhanced cookie handler for verification in iframes
+function setupVerificationCookieHandler(iframe) {
+  // Check if we can access the iframe (same-origin check)
+  try {
+    // This will throw if cross-origin
+    const iframeWindow = iframe.contentWindow;
+    if (!iframeWindow) return;
+    
+    // Additional same-origin check before accessing document
+    // Accessing location.href will throw for cross-origin iframes
+    try {
+      // eslint-disable-next-line no-unused-expressions
+      iframeWindow.location.href;
+    } catch (crossOriginError) {
+      // Cross-origin iframe, skip cookie handler setup
+      return;
+    }
+    
+    const iframeDoc = iframe.contentDocument || iframeWindow.document;
+    if (!iframeDoc) return;
+    
+    // Override document.cookie in the iframe to handle verification cookies
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      iframeDoc.constructor.prototype,
+      "cookie"
+    );
+    
+    if (originalDescriptor) {
+      Object.defineProperty(iframeDoc, "cookie", {
+        get: function() {
+          return originalDescriptor.get.call(this);
+        },
+        set: function(value) {
+          // Preserve and enhance verification cookies
+          const enhancedValue = preserveVerificationCookie(value);
+          return originalDescriptor.set.call(this, enhancedValue);
+        },
+        configurable: true
+      });
+    }
+  } catch (e) {
+    // Cross-origin iframe or other access error, cannot access
+  }
+}
+
+// Setup all verification support systems
+function setupVerificationSupport() {
+  const settings = getSettings();
+  
+  // Browser verification is always enabled for compatibility
+  setupBrowserVerification();
+  
+  // Cloudflare support is always enabled
+  setupCloudflareSupport();
+  
+  console.log("Nova: Browser and Cloudflare verification support enabled");
+}
+
 // Common ad-serving domains to block
 const AD_DOMAINS = [
   "doubleclick.net",
@@ -1398,6 +1746,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupCookieRewriter();
   setupWindowOpenInjection();
   setupAdBlocker();
+  setupVerificationSupport();
 
   const urlInput = document.getElementById("url-input");
 

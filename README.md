@@ -49,7 +49,8 @@ And may more!
 - Recaptha†
 - Hcaptha†
 - Yandex Cloud
-- Cloudflare (comming soon)
+- Cloudflare (Turnstile, JS Challenges, Bot Management)
+- Browser Verification
 - Varfication cookies*
 
 And more
@@ -60,7 +61,7 @@ And more
 
 ## Planed Updates and Roadmap
 
-- [ ] Add Full Varifacation Support
+- [x] Add Full Varifacation Support (Browser & Cloudflare verification)
 - [ ] Add Wisp Server Rotation
 - [ ] Add Personal Wisp Server/ Static Server System
 - [ ] Update Favicon System

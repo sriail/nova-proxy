@@ -20,6 +20,7 @@ const IMMUTABLE_CACHE_MAX_AGE = 86400 * 7; // 7 days for immutable assets like W
 // Compute transport paths manually (these packages are browser-only)
 // We resolve the main export and go up to get the package directory
 const epoxyPath = join(dirname(fileURLToPath(import.meta.resolve("@mercuryworkshop/epoxy-transport"))), "..");
+const libcurlPath = join(dirname(fileURLToPath(import.meta.resolve("@mercuryworkshop/libcurl-transport"))), "..");
 
 // Wisp Configuration
 logging.set_level(logging.NONE);
@@ -78,6 +79,14 @@ fastify.register(fastifyStatic, {
 fastify.register(fastifyStatic, {
   root: join(epoxyPath, "dist"),
   prefix: "/epoxy/",
+  decorateReply: false,
+  maxAge: IMMUTABLE_CACHE_MAX_AGE * 1000,
+});
+
+// Serve libcurl transport files (better WebSocket support for games)
+fastify.register(fastifyStatic, {
+  root: join(libcurlPath, "dist"),
+  prefix: "/libcurl/",
   decorateReply: false,
   maxAge: IMMUTABLE_CACHE_MAX_AGE * 1000,
 });
