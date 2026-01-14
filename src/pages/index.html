@@ -14,6 +14,7 @@
       :root {
         --nav-bar-height: 49px;
         --tab-bar-height: 36px;
+        --fullscreen-hide-offset: 2px; /* Extra offset to hide borders in fullscreen mode */
         --bg-color: #ffffff;
         --bg-secondary: #f8f8f8;
         --text-color: #000000;
@@ -521,27 +522,27 @@
         position: fixed;
         left: 0;
         right: 0;
-        top: 0;
-        transform: translateY(-100%);
-        transition: transform 0.3s ease;
+        top: calc(-1 * var(--tab-bar-height) - var(--fullscreen-hide-offset));
+        transform: translateY(0);
+        transition: top 0.3s ease;
         z-index: 2001;
       }
       body.fullscreen-mode .upper-nav {
         position: fixed;
         left: 0;
         right: 0;
-        top: 0;
-        transform: translateY(calc(-100% - var(--tab-bar-height)));
-        transition: transform 0.3s ease;
+        top: calc(-1 * var(--nav-bar-height) - var(--fullscreen-hide-offset));
+        transform: translateY(0);
+        transition: top 0.3s ease;
         z-index: 2000;
       }
       body.fullscreen-mode .tab-bar:hover,
       body.fullscreen-mode.navbar-visible .tab-bar {
-        transform: translateY(0);
+        top: 0;
       }
       body.fullscreen-mode .upper-nav:hover,
       body.fullscreen-mode.navbar-visible .upper-nav {
-        transform: translateY(var(--tab-bar-height));
+        top: var(--tab-bar-height);
       }
       body.fullscreen-mode .container {
         padding-top: 0;
@@ -554,6 +555,7 @@
         left: 0;
         right: 0;
         bottom: 0;
+        z-index: 1;
       }
       /* Fullscreen hover trigger zone */
       .fullscreen-trigger {
@@ -564,6 +566,7 @@
         right: 0;
         height: 20px;
         z-index: 1999;
+        background: transparent;
       }
       body.fullscreen-mode .fullscreen-trigger {
         display: block;
