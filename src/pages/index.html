@@ -1780,7 +1780,6 @@
       }
       
       function exitFullscreenMode() {
-        isFullscreenMode = false;
         document.body.classList.remove('fullscreen-mode');
         
         // Update button icon back to fullscreen icon
@@ -1811,7 +1810,6 @@
           // Auto-hide after 3 seconds of no interaction
           clearTimeout(navHideTimeout);
           navHideTimeout = setTimeout(() => {
-            // Check current mouse position, not stale event position
             hideNavbar();
           }, 3000);
         } else if (e.clientY > 150) {
