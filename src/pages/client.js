@@ -1,8 +1,11 @@
 "use strict";
 
 // Configuration constants
-// Use epoxy transport v2.1.28 for better SharedWorker compatibility and proper headers handling
-const TRANSPORT_PATH = "/epoxy/index.mjs";
+// Transport paths for different proxy engines
+// libcurl-transport works better with WebSocket-heavy sites (games, etc.)
+const LIBCURL_TRANSPORT_PATH = "/libcurl/index.mjs";
+// epoxy-transport for Ultraviolet (broader compatibility)
+const EPOXY_TRANSPORT_PATH = "/epoxy/index.mjs";
 
 // Scramjet URL prefix for proxy routes
 const SCRAMJET_PREFIX = "/scram/";
@@ -16,14 +19,31 @@ const swAllowedHostnames = ["localhost", "127.0.0.1"];
 // Cache transport configuration to avoid redundant setup
 let transportConfigured = false;
 let lastWispUrl = null;
+let lastTransportPath = null;
 let transportConfigPromise = null;
+
+// Get the appropriate transport path based on settings
+function getTransportPath() {
+  const settings = getSettings();
+  
+  // If using preferred transport, select based on proxy engine
+  if (settings.usePreferredTransport) {
+    // Use libcurl for Scramjet (better WebSocket support for games)
+    // Use epoxy for Ultraviolet (broader compatibility)
+    return settings.proxyEngine === "ultraviolet" ? EPOXY_TRANSPORT_PATH : LIBCURL_TRANSPORT_PATH;
+  }
+  
+  // Otherwise use the manually selected transport
+  return settings.transport === "epoxy" ? EPOXY_TRANSPORT_PATH : LIBCURL_TRANSPORT_PATH;
+}
 
 // Shared function to configure transport (with deduplication)
 async function ensureTransportConfigured() {
   const wispUrl = getWispUrl();
+  const transportPath = getTransportPath();
   
-  // If already configured with the same URL, return immediately
-  if (transportConfigured && lastWispUrl === wispUrl) {
+  // If already configured with the same URL and transport, return immediately
+  if (transportConfigured && lastWispUrl === wispUrl && lastTransportPath === transportPath) {
     return;
   }
   
@@ -37,11 +57,17 @@ async function ensureTransportConfigured() {
   transportConfigPromise = (async () => {
     try {
       const currentTransport = await connection.getTransport();
-      if (currentTransport !== TRANSPORT_PATH || lastWispUrl !== wispUrl) {
-        await connection.setTransport(TRANSPORT_PATH, [{ wisp: wispUrl }]);
+      if (currentTransport !== transportPath || lastWispUrl !== wispUrl) {
+        // Use 'websocket' parameter for libcurl, 'wisp' for epoxy
+        if (transportPath === LIBCURL_TRANSPORT_PATH) {
+          await connection.setTransport(transportPath, [{ websocket: wispUrl }]);
+        } else {
+          await connection.setTransport(transportPath, [{ wisp: wispUrl }]);
+        }
       }
       transportConfigured = true;
       lastWispUrl = wispUrl;
+      lastTransportPath = transportPath;
     } finally {
       transportConfigPromise = null;
     }
@@ -58,6 +84,10 @@ function getSettings() {
     adBlock: localStorage.getItem("nova-ad-block") === "true",
     // Preserve cookies defaults to true if not set
     preserveCookies: localStorage.getItem("nova-preserve-cookies") !== "false",
+    // Use preferred transport defaults to true if not set
+    usePreferredTransport: localStorage.getItem("nova-use-preferred-transport") !== "false",
+    // Transport defaults to libcurl
+    transport: localStorage.getItem("nova-transport") || "libcurl",
   };
 }
 

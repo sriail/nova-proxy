@@ -217,6 +217,14 @@
         color: var(--text-secondary);
         font-size: 0.85rem;
       }
+      /* Disabled state for transport selection */
+      .setting-item.disabled {
+        opacity: 0.5;
+        pointer-events: none;
+      }
+      .setting-item.disabled .radio-option {
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
@@ -336,6 +344,39 @@
             </label>
           </div>
         </div>
+        <div class="setting-item">
+          <label class="checkbox-option">
+            <input type="checkbox" id="use-preferred-transport" checked />
+            <span class="checkbox-label">
+              <strong>Use Preferred Transport</strong>
+              <span>Automatically use the recommended transport for each proxy engine (libcurl for Scramjet, epoxy for Ultraviolet)</span>
+            </span>
+          </label>
+        </div>
+        <div class="setting-item" id="transport-selection-container">
+          <label>Transport Protocol</label>
+          <p class="description">
+            Choose which transport protocol to use for network requests.
+          </p>
+          <div class="radio-group" id="transport-options">
+            <label class="radio-option selected" data-value="libcurl" data-group="transport">
+              <input type="radio" name="transport" value="libcurl" checked />
+              <div class="radio-circle"></div>
+              <div class="radio-label">
+                <strong>libcurl</strong>
+                <span>Better WebSocket support for games and real-time apps (recommended for Scramjet)</span>
+              </div>
+            </label>
+            <label class="radio-option" data-value="epoxy" data-group="transport">
+              <input type="radio" name="transport" value="epoxy" />
+              <div class="radio-circle"></div>
+              <div class="radio-label">
+                <strong>Epoxy</strong>
+                <span>Encrypted transport with broader compatibility (recommended for Ultraviolet)</span>
+              </div>
+            </label>
+          </div>
+        </div>
       </div>
       <button class="save-btn" onclick="saveSettings()">Save Settings</button>
       <p class="save-message" id="save-message">Settings Saved</p>
@@ -366,11 +407,15 @@
         const adBlock = localStorage.getItem("nova-ad-block") === "true";
         // Preserve cookies defaults to true if not set
         const preserveCookies = localStorage.getItem("nova-preserve-cookies") !== "false";
+        // Use preferred transport defaults to true if not set
+        const usePreferredTransport = localStorage.getItem("nova-use-preferred-transport") !== "false";
+        const transport = localStorage.getItem("nova-transport") || "libcurl";
         const theme = localStorage.getItem(THEME_KEY) || "system";
 
         document.getElementById("wisp-server").value = wispServer;
         document.getElementById("ad-block").checked = adBlock;
         document.getElementById("preserve-cookies").checked = preserveCookies;
+        document.getElementById("use-preferred-transport").checked = usePreferredTransport;
 
         // Apply current theme
         applyTheme(theme);
@@ -378,6 +423,10 @@
         // Update radio selections using helper function
         updateRadioSelection("theme", theme);
         updateRadioSelection("proxy-engine", proxyEngine);
+        updateRadioSelection("transport", transport);
+        
+        // Update transport selection visibility
+        updateTransportSelectionVisibility(usePreferredTransport);
       });
 
       // Helper function to update radio selection for a group
@@ -408,6 +457,22 @@
         applyTheme(selectedTheme);
       });
       setupRadioGroup("proxy-engine");
+      setupRadioGroup("transport");
+      
+      // Handle "Use Preferred Transport" checkbox
+      document.getElementById("use-preferred-transport").addEventListener("change", function() {
+        updateTransportSelectionVisibility(this.checked);
+      });
+      
+      // Function to show/hide transport selection based on checkbox
+      function updateTransportSelectionVisibility(usePreferred) {
+        const container = document.getElementById("transport-selection-container");
+        if (usePreferred) {
+          container.classList.add("disabled");
+        } else {
+          container.classList.remove("disabled");
+        }
+      }
 
       // Helper function to get selected radio value with default
       function getSelectedRadioValue(name, defaultValue) {
@@ -430,17 +495,23 @@
         const proxyEngine = getSelectedRadioValue("proxy-engine", "scramjet");
         const adBlock = document.getElementById("ad-block").checked;
         const preserveCookies = document.getElementById("preserve-cookies").checked;
+        const usePreferredTransport = document.getElementById("use-preferred-transport").checked;
+        const transport = getSelectedRadioValue("transport", "libcurl");
         const theme = getSelectedRadioValue("theme", "system");
 
         // Get old values to check if anything changed that requires reload
         const oldWispServer = localStorage.getItem("nova-wisp-server") || "";
         const oldProxyEngine = localStorage.getItem("nova-proxy-engine") || "scramjet";
+        const oldUsePreferredTransport = localStorage.getItem("nova-use-preferred-transport") !== "false";
+        const oldTransport = localStorage.getItem("nova-transport") || "libcurl";
         const oldTheme = localStorage.getItem(THEME_KEY) || "system";
 
         localStorage.setItem("nova-wisp-server", wispServer);
         localStorage.setItem("nova-proxy-engine", proxyEngine);
         localStorage.setItem("nova-ad-block", adBlock.toString());
         localStorage.setItem("nova-preserve-cookies", preserveCookies.toString());
+        localStorage.setItem("nova-use-preferred-transport", usePreferredTransport.toString());
+        localStorage.setItem("nova-transport", transport);
         localStorage.setItem(THEME_KEY, theme);
 
         const message = document.getElementById("save-message");
@@ -453,6 +524,8 @@
         const needsReload = (
           wispServer !== oldWispServer ||
           proxyEngine !== oldProxyEngine ||
+          usePreferredTransport !== oldUsePreferredTransport ||
+          transport !== oldTransport ||
           theme !== oldTheme
         );
 
