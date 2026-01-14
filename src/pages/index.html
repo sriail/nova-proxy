@@ -14,6 +14,7 @@
       :root {
         --nav-bar-height: 49px;
         --tab-bar-height: 36px;
+        --fullscreen-hide-offset: 2px; /* Extra offset to hide borders in fullscreen mode */
         --bg-color: #ffffff;
         --bg-secondary: #f8f8f8;
         --text-color: #000000;
@@ -516,6 +517,60 @@
       .settings-btn {
         display: none;
       }
+      /* Fullscreen mode styles */
+      body.fullscreen-mode .tab-bar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: calc(-1 * var(--tab-bar-height) - var(--fullscreen-hide-offset));
+        transform: translateY(0);
+        transition: top 0.3s ease;
+        z-index: 2001;
+      }
+      body.fullscreen-mode .upper-nav {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: calc(-1 * var(--nav-bar-height) - var(--fullscreen-hide-offset));
+        transform: translateY(0);
+        transition: top 0.3s ease;
+        z-index: 2000;
+      }
+      body.fullscreen-mode .tab-bar:hover,
+      body.fullscreen-mode.navbar-visible .tab-bar {
+        top: 0;
+      }
+      body.fullscreen-mode .upper-nav:hover,
+      body.fullscreen-mode.navbar-visible .upper-nav {
+        top: var(--tab-bar-height);
+      }
+      body.fullscreen-mode .container {
+        padding-top: 0;
+      }
+      body.fullscreen-mode #proxy-frame,
+      body.fullscreen-mode .tab-iframe {
+        height: 100vh !important;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1;
+      }
+      /* Fullscreen hover trigger zone */
+      .fullscreen-trigger {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 20px;
+        z-index: 1999;
+        background: transparent;
+      }
+      body.fullscreen-mode .fullscreen-trigger {
+        display: block;
+      }
       /* Default Proxy Selection Popup */
       .proxy-popup {
         display: none;
@@ -604,6 +659,8 @@
     </style>
   </head>
   <body>
+    <!-- Fullscreen hover trigger zone -->
+    <div class="fullscreen-trigger" id="fullscreen-trigger"></div>
     <!-- Tab Bar -->
     <div class="tab-bar" id="tab-bar">
       <div class="tabs-container" id="tabs-container">
@@ -666,6 +723,27 @@
         <input type="text" id="nav-url-input" placeholder="Search or enter URL..." />
       </div>
       <div class="nav-right">
+        <!-- Fullscreen Button -->
+        <button class="nav-btn" id="nav-fullscreen" title="Fullscreen" onclick="toggleFullscreen()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" id="fullscreen-icon">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M4 8v-2a2 2 0 0 1 2 -2h2"/>
+            <path d="M4 16v2a2 2 0 0 0 2 2h2"/>
+            <path d="M16 4h2a2 2 0 0 1 2 2v2"/>
+            <path d="M16 20h2a2 2 0 0 0 2 -2v-2"/>
+          </svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" id="exit-fullscreen-icon" style="display: none;">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M5 9l4 0l0 -4"/>
+            <path d="M3 3l6 6"/>
+            <path d="M5 15l4 0l0 4"/>
+            <path d="M3 21l6 -6"/>
+            <path d="M19 9l-4 0l0 -4"/>
+            <path d="M15 9l6 -6"/>
+            <path d="M19 15l-4 0l0 4"/>
+            <path d="M15 15l6 6"/>
+          </svg>
+        </button>
         <!-- Settings Button -->
         <button class="nav-btn" id="nav-settings" title="Settings" onclick="goToSettings()">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -888,6 +966,106 @@
         const dropdown = document.getElementById("dropdown-menu");
         dropdown.classList.toggle("show");
       }
+
+      // Fullscreen mode management
+      let isFullscreenMode = false;
+      let navbarHideTimeout = null;
+      const NAVBAR_HIDE_DELAY_MS = 300; // Matches CSS transition duration
+      
+      // Store event handlers for cleanup
+      let fullscreenEventHandlers = null;
+      
+      function toggleFullscreen() {
+        isFullscreenMode = !isFullscreenMode;
+        const body = document.body;
+        const fullscreenIcon = document.getElementById("fullscreen-icon");
+        const exitFullscreenIcon = document.getElementById("exit-fullscreen-icon");
+        const fullscreenBtn = document.getElementById("nav-fullscreen");
+        
+        if (isFullscreenMode) {
+          body.classList.add("fullscreen-mode");
+          fullscreenIcon.style.display = "none";
+          exitFullscreenIcon.style.display = "block";
+          fullscreenBtn.title = "Exit Fullscreen";
+          setupFullscreenNavbarHover();
+        } else {
+          body.classList.remove("fullscreen-mode");
+          body.classList.remove("navbar-visible");
+          fullscreenIcon.style.display = "block";
+          exitFullscreenIcon.style.display = "none";
+          fullscreenBtn.title = "Fullscreen";
+          if (navbarHideTimeout) {
+            clearTimeout(navbarHideTimeout);
+            navbarHideTimeout = null;
+          }
+          cleanupFullscreenNavbarHover();
+        }
+      }
+      
+      function cleanupFullscreenNavbarHover() {
+        if (!fullscreenEventHandlers) return;
+        
+        const { trigger, tabBar, upperNav, showNavbar, hideNavbar } = fullscreenEventHandlers;
+        trigger.removeEventListener("mouseenter", showNavbar);
+        tabBar.removeEventListener("mouseenter", showNavbar);
+        tabBar.removeEventListener("mouseleave", hideNavbar);
+        upperNav.removeEventListener("mouseenter", showNavbar);
+        upperNav.removeEventListener("mouseleave", hideNavbar);
+        fullscreenEventHandlers = null;
+      }
+      
+      function setupFullscreenNavbarHover() {
+        // Clean up any existing handlers first
+        cleanupFullscreenNavbarHover();
+        
+        const trigger = document.getElementById("fullscreen-trigger");
+        const tabBar = document.getElementById("tab-bar");
+        const upperNav = document.querySelector(".upper-nav");
+        
+        // Safety check: ensure all elements exist
+        if (!trigger || !tabBar || !upperNav) {
+          console.warn("Fullscreen navbar hover: Required elements not found");
+          return;
+        }
+        
+        function showNavbar() {
+          document.body.classList.add("navbar-visible");
+          if (navbarHideTimeout) {
+            clearTimeout(navbarHideTimeout);
+            navbarHideTimeout = null;
+          }
+        }
+        
+        function hideNavbar() {
+          if (navbarHideTimeout) {
+            clearTimeout(navbarHideTimeout);
+          }
+          navbarHideTimeout = setTimeout(function() {
+            if (isFullscreenMode) {
+              document.body.classList.remove("navbar-visible");
+            }
+          }, NAVBAR_HIDE_DELAY_MS);
+        }
+        
+        // Store handlers for cleanup
+        fullscreenEventHandlers = { trigger, tabBar, upperNav, showNavbar, hideNavbar };
+        
+        // Trigger zone at top of screen
+        trigger.addEventListener("mouseenter", showNavbar);
+        
+        // Keep navbar visible while hovering over it
+        tabBar.addEventListener("mouseenter", showNavbar);
+        tabBar.addEventListener("mouseleave", hideNavbar);
+        upperNav.addEventListener("mouseenter", showNavbar);
+        upperNav.addEventListener("mouseleave", hideNavbar);
+      }
+      
+      // Handle Escape key to exit fullscreen
+      document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape" && isFullscreenMode) {
+          toggleFullscreen();
+        }
+      });
 
       // Close dropdown when clicking outside
       document.addEventListener("click", function (e) {
