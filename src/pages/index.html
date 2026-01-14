@@ -517,26 +517,31 @@
         display: none;
       }
       /* Fullscreen mode styles */
-      body.fullscreen-mode .tab-bar,
+      body.fullscreen-mode .tab-bar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: 0;
+        transform: translateY(-100%);
+        transition: transform 0.3s ease;
+        z-index: 2001;
+      }
       body.fullscreen-mode .upper-nav {
         position: fixed;
         left: 0;
         right: 0;
-        transform: translateY(-100%);
+        top: 0;
+        transform: translateY(calc(-100% - var(--tab-bar-height)));
         transition: transform 0.3s ease;
         z-index: 2000;
       }
-      body.fullscreen-mode .tab-bar {
-        top: 0;
-      }
-      body.fullscreen-mode .upper-nav {
-        top: var(--tab-bar-height);
-      }
       body.fullscreen-mode .tab-bar:hover,
-      body.fullscreen-mode .upper-nav:hover,
-      body.fullscreen-mode.navbar-visible .tab-bar,
-      body.fullscreen-mode.navbar-visible .upper-nav {
+      body.fullscreen-mode.navbar-visible .tab-bar {
         transform: translateY(0);
+      }
+      body.fullscreen-mode .upper-nav:hover,
+      body.fullscreen-mode.navbar-visible .upper-nav {
+        transform: translateY(var(--tab-bar-height));
       }
       body.fullscreen-mode .container {
         padding-top: 0;

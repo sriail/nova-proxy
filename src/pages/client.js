@@ -60,7 +60,19 @@ async function ensureTransportConfigured() {
       if (currentTransport !== transportPath || lastWispUrl !== wispUrl) {
         // Use 'websocket' parameter for libcurl, 'wisp' for epoxy
         if (transportPath === LIBCURL_TRANSPORT_PATH) {
-          await connection.setTransport(transportPath, [{ websocket: wispUrl }]);
+          // Configure libcurl with optimized settings for WebSocket connections
+          // These settings improve compatibility with WebSocket-heavy sites like games
+          await connection.setTransport(transportPath, [{ 
+            websocket: wispUrl,
+            // Explicitly set wisp transport mode for multiplexed WebSocket connections
+            // This ensures proper handling of concurrent connections for games/real-time apps
+            transport: "wisp",
+            // Connection pool limits: [max_active, cache_limit, max_per_host]
+            // - max_active (50): Maximum concurrent active connections
+            // - cache_limit (30): Maximum cached/idle connections
+            // - max_per_host (10): Maximum connections per host (helps with WSS-heavy sites)
+            connections: [50, 30, 10]
+          }]);
         } else {
           await connection.setTransport(transportPath, [{ wisp: wispUrl }]);
         }
