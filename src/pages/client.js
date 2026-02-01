@@ -38,12 +38,13 @@ function getTransportPath() {
 }
 
 // Shared function to configure transport (with deduplication)
-async function ensureTransportConfigured() {
+// forceRefresh: when true, always reconfigures the transport even if cached
+async function ensureTransportConfigured(forceRefresh = false) {
   const wispUrl = getWispUrl();
   const transportPath = getTransportPath();
   
-  // If already configured with the same URL and transport, return immediately
-  if (transportConfigured && lastWispUrl === wispUrl && lastTransportPath === transportPath) {
+  // If already configured with the same URL and transport, and not forcing refresh, return immediately
+  if (!forceRefresh && transportConfigured && lastWispUrl === wispUrl && lastTransportPath === transportPath) {
     return;
   }
   
@@ -56,24 +57,38 @@ async function ensureTransportConfigured() {
   // Start configuration
   transportConfigPromise = (async () => {
     try {
-      const currentTransport = await connection.getTransport();
-      if (currentTransport !== transportPath || lastWispUrl !== wispUrl) {
-        // Use 'websocket' parameter for libcurl, 'wisp' for epoxy
-        if (transportPath === LIBCURL_TRANSPORT_PATH) {
-          await connection.setTransport(transportPath, [{ websocket: wispUrl }]);
-        } else {
-          await connection.setTransport(transportPath, [{ wisp: wispUrl }]);
-        }
+      // Always set the transport to ensure connection is fresh
+      // Use 'websocket' parameter for libcurl, 'wisp' for epoxy
+      if (transportPath === LIBCURL_TRANSPORT_PATH) {
+        await connection.setTransport(transportPath, [{ websocket: wispUrl }]);
+      } else {
+        await connection.setTransport(transportPath, [{ wisp: wispUrl }]);
       }
       transportConfigured = true;
       lastWispUrl = wispUrl;
       lastTransportPath = transportPath;
+    } catch (error) {
+      console.error("Failed to configure transport:", error);
+      // Reset the cached state so it will retry next time
+      transportConfigured = false;
+      lastWispUrl = null;
+      lastTransportPath = null;
+      throw error;
     } finally {
       transportConfigPromise = null;
     }
   })();
   
   await transportConfigPromise;
+}
+
+// Reset transport configuration to force reconfiguration on next request
+// This is useful when the transport connection fails or needs to be refreshed
+function resetTransportConfiguration() {
+  transportConfigured = false;
+  lastWispUrl = null;
+  lastTransportPath = null;
+  transportConfigPromise = null;
 }
 
 // Get settings from localStorage
@@ -434,11 +449,27 @@ function extractPageInfo(iframe, currentUrl) {
         const rel = (link.getAttribute('rel') || '').toLowerCase();
         // Check for various icon rel values
         if (rel.includes('icon')) {
-          // Use the resolved href property directly - it's already a valid URL
-          // that the browser can access (either proxied or absolute)
           if (link.href) {
-            faviconUrl = link.href;
-            break;
+            // Check if the favicon URL is already a proxied URL (same origin)
+            try {
+              const faviconUrlObj = new URL(link.href);
+              if (faviconUrlObj.origin === location.origin) {
+                // Same origin URL (already proxied) - use directly
+                faviconUrl = link.href;
+              } else {
+                // External URL - needs to be proxied
+                const proxiedUrl = encodeProxyUrl(link.href);
+                if (proxiedUrl) {
+                  faviconUrl = proxiedUrl;
+                }
+              }
+            } catch (e) {
+              // Invalid URL or relative path - try to use as-is if it looks like a proxy path
+              if (link.href.startsWith('/scram/') || link.href.startsWith('/scramjet/') || link.href.startsWith('/service/')) {
+                faviconUrl = link.href;
+              }
+            }
+            if (faviconUrl) break;
           }
         }
       }
@@ -1033,8 +1064,15 @@ async function loadProxiedUrlScramjet(url, tabId) {
     throw err;
   }
 
-  // Set up epoxy transport with Wisp (use shared function for caching and deduplication)
-  await ensureTransportConfigured();
+  // Set up transport with Wisp - force refresh to ensure fresh connection for each navigation
+  // This fixes issues with libcurl transport dropping connections after first navigation
+  try {
+    await ensureTransportConfigured(true);
+  } catch (transportErr) {
+    console.error("Transport configuration failed:", transportErr);
+    alert("Failed to configure transport: " + transportErr.message);
+    throw transportErr;
+  }
 
   const container = document.getElementById("container");
   
@@ -1103,8 +1141,14 @@ async function loadProxiedUrlUltraviolet(url, tabId) {
     throw new Error("Ultraviolet configuration not available");
   }
 
-  // Set up epoxy transport with Wisp (use shared function for caching and deduplication)
-  await ensureTransportConfigured();
+  // Set up transport with Wisp - force refresh to ensure fresh connection for each navigation
+  try {
+    await ensureTransportConfigured(true);
+  } catch (transportErr) {
+    console.error("Transport configuration failed:", transportErr);
+    alert("Failed to configure transport: " + transportErr.message);
+    throw transportErr;
+  }
 
   try {
     await registerUltravioletSW();

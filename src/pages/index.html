@@ -1127,9 +1127,19 @@
         return 'New Tab';
       }
       
-      // Sanitize URL for safe use (allow http/https protocols and local proxy paths)
+      // Sanitize URL for safe use (allow http/https protocols, data: URLs, and local proxy paths)
       function sanitizeUrl(url) {
         if (!url) return null;
+        
+        // Allow data: URLs for favicons (base64-encoded images)
+        if (typeof url === 'string' && url.startsWith('data:')) {
+          // Validate it's an image data URL
+          if (url.startsWith('data:image/')) {
+            return url;
+          }
+          return null;
+        }
+        
         try {
           const urlObj = new URL(url, location.origin);
           // Allow http/https protocols
