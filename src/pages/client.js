@@ -84,12 +84,16 @@ async function ensureTransportConfigured(forceRefresh = false) {
 
 // Reset transport configuration to force reconfiguration on next request
 // This is useful when the transport connection fails or needs to be refreshed
+// Exposed for external callers or future use by the settings page
 function resetTransportConfiguration() {
   transportConfigured = false;
   lastWispUrl = null;
   lastTransportPath = null;
   transportConfigPromise = null;
 }
+
+// Expose reset function globally for settings page to use
+window.resetTransportConfiguration = resetTransportConfiguration;
 
 // Get settings from localStorage
 function getSettings() {
@@ -465,7 +469,7 @@ function extractPageInfo(iframe, currentUrl) {
               }
             } catch (e) {
               // Invalid URL or relative path - try to use as-is if it looks like a proxy path
-              if (link.href.startsWith('/scram/') || link.href.startsWith('/scramjet/') || link.href.startsWith('/service/')) {
+              if (link.href.startsWith(SCRAMJET_PREFIX) || link.href.startsWith('/scramjet/') || link.href.startsWith(UV_PREFIX)) {
                 faviconUrl = link.href;
               }
             }

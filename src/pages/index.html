@@ -1187,7 +1187,9 @@
           img.src = safeFavicon;
           img.alt = '';
           img.onerror = function() {
-            this.parentElement.innerHTML = NOVA_ICON_SVG;
+            if (this.parentElement) {
+              this.parentElement.innerHTML = NOVA_ICON_SVG;
+            }
           };
           return img;
         }
@@ -1219,7 +1221,9 @@
           // Add onerror handler for image elements
           if (faviconEl.tagName === 'IMG') {
             faviconEl.onerror = function() {
-              this.parentElement.innerHTML = NOVA_ICON_SVG;
+              if (this.parentElement) {
+                this.parentElement.innerHTML = NOVA_ICON_SVG;
+              }
             };
           }
         }
