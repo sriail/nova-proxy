@@ -308,7 +308,30 @@ function getIframeLocationUrl(iframe) {
 // Cache for favicon data URLs to avoid repeated fetches
 const faviconCache = new Map();
 
+// Check if a URL is safe to fetch (same-origin or valid proxy path)
+// Returns true for data URLs, same-origin URLs, and relative proxy paths
+function isSafeFaviconUrl(url) {
+  if (!url) return false;
+  
+  // Data URLs are always safe
+  if (url.startsWith('data:')) return true;
+  
+  // Relative proxy paths are safe
+  if (url.startsWith(SCRAMJET_PREFIX) || url.startsWith('/scramjet/') || url.startsWith(UV_PREFIX)) {
+    return true;
+  }
+  
+  // Check if it's a same-origin URL
+  try {
+    const urlObj = new URL(url, location.origin);
+    return urlObj.origin === location.origin;
+  } catch (e) {
+    return false;
+  }
+}
+
 // Fetch favicon through proxy and convert to data URL
+// Only fetches same-origin URLs (proxied URLs) or data URLs
 async function fetchFaviconAsDataUrl(faviconUrl) {
   if (!faviconUrl) return null;
   
@@ -317,8 +340,19 @@ async function fetchFaviconAsDataUrl(faviconUrl) {
     return faviconCache.get(faviconUrl);
   }
   
+  // If it's already a data URL, return it directly
+  if (faviconUrl.startsWith('data:')) {
+    return faviconUrl;
+  }
+  
+  // Safety check: NEVER fetch external URLs directly (CORS will fail)
+  if (!isSafeFaviconUrl(faviconUrl)) {
+    console.log("Skipping unsafe favicon URL (CORS):", faviconUrl);
+    return null;
+  }
+  
   try {
-    // First try with no-cors mode (for same-origin proxy URLs)
+    // Fetch the proxied URL (same-origin, no CORS issues)
     let response;
     try {
       response = await fetch(faviconUrl, {
@@ -548,7 +582,15 @@ async function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
       
       // Try to fetch the favicon as a data URL for better reliability
       const dataUrl = await fetchFaviconAsDataUrl(favicon);
-      updateData.favicon = dataUrl || favicon;
+      // Only use favicon as fallback if it's a safe URL (same-origin or data URL)
+      // Never use external URLs directly as they will fail with CORS
+      if (dataUrl) {
+        updateData.favicon = dataUrl;
+      } else if (isSafeFaviconUrl(favicon)) {
+        // Safe URL (same-origin or data URL) - can use directly
+        updateData.favicon = favicon;
+      }
+      // External URLs are NOT set - they would cause CORS errors
     }
     
     window.updateTabInfo(tabId, updateData);
