@@ -535,19 +535,24 @@ function extractPageInfo(iframe, currentUrl) {
 }
 
 // Delay in milliseconds to wait for page content to be ready after navigation
-const PAGE_INFO_DELAY_MS = 250;
+// Slightly increased from 250ms to allow more time for dynamic content to load
+const PAGE_INFO_DELAY_MS = 300;
 
-// Retry delay for favicon extraction if not found on first attempt
-const FAVICON_RETRY_DELAY_MS = 500;
+// Retry delay for favicon/title extraction if not found on first attempt
+// Uses exponential backoff: 500ms, 1000ms, 2000ms, 4000ms
+const FAVICON_RETRY_BASE_DELAY_MS = 500;
 
-// Maximum number of retries for favicon extraction
-const MAX_FAVICON_RETRIES = 2;
+// Maximum number of retries for favicon/title extraction (increased for reliability)
+const MAX_FAVICON_RETRIES = 4;
 
 // Delay for navigation event handlers to allow URL to update
 const NAVIGATION_CHECK_DELAY_MS = 50;
 
-// Track pending favicon retries to prevent overlapping attempts
-const pendingFaviconRetries = new Map();
+// Track pending retries to prevent overlapping attempts
+const pendingPageInfoRetries = new Map();
+
+// Track MutationObservers per tab to prevent memory leaks
+const tabObservers = new Map();
 
 // Update tab and URL bar with current page info
 async function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
@@ -561,9 +566,12 @@ async function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
     }
   }
   
+  // Track what we successfully extracted
+  let gotTitle = !!pageTitle;
+  let gotFavicon = false;
+  
   // Update tab info if tab system is available
   if (tabId !== undefined && typeof window.updateTabInfo === "function") {
-    // Only update title if we have one
     const updateData = {
       url: currentUrl || undefined
     };
@@ -574,21 +582,17 @@ async function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
     
     // If we found a favicon URL, try to fetch it and convert to data URL
     if (favicon) {
-      // Clear any pending retry since we found a favicon
-      if (pendingFaviconRetries.has(tabId)) {
-        clearTimeout(pendingFaviconRetries.get(tabId));
-        pendingFaviconRetries.delete(tabId);
-      }
-      
       // Try to fetch the favicon as a data URL for better reliability
       const dataUrl = await fetchFaviconAsDataUrl(favicon);
       // Only use favicon as fallback if it's a safe URL (same-origin or data URL)
       // Never use external URLs directly as they will fail with CORS
       if (dataUrl) {
         updateData.favicon = dataUrl;
+        gotFavicon = true;
       } else if (isSafeFaviconUrl(favicon)) {
         // Safe URL (same-origin or data URL) - can use directly
         updateData.favicon = favicon;
+        gotFavicon = true;
       }
       // External URLs are NOT set - they would cause CORS errors
     }
@@ -596,20 +600,25 @@ async function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
     window.updateTabInfo(tabId, updateData);
   }
   
-  // If no favicon found and we haven't retried too many times, try again
-  // Some pages load favicons dynamically
-  if (!favicon && retryCount < MAX_FAVICON_RETRIES && tabId !== undefined) {
+  // Retry if we're missing title OR favicon and haven't retried too many times
+  // Some pages load title/favicon dynamically after initial page load
+  const needsRetry = (!gotTitle || !gotFavicon) && retryCount < MAX_FAVICON_RETRIES && tabId !== undefined;
+  
+  if (needsRetry) {
     // Clear any existing retry for this tab to prevent overlapping
-    if (pendingFaviconRetries.has(tabId)) {
-      clearTimeout(pendingFaviconRetries.get(tabId));
+    if (pendingPageInfoRetries.has(tabId)) {
+      clearTimeout(pendingPageInfoRetries.get(tabId));
     }
     
-    const timeoutId = setTimeout(() => {
-      pendingFaviconRetries.delete(tabId);
-      updatePageInfo(tabId, currentUrl, iframe, retryCount + 1);
-    }, FAVICON_RETRY_DELAY_MS);
+    // Use exponential backoff for retries: 500ms, 1000ms, 2000ms, 4000ms
+    const retryDelay = FAVICON_RETRY_BASE_DELAY_MS * Math.pow(2, retryCount);
     
-    pendingFaviconRetries.set(tabId, timeoutId);
+    const timeoutId = setTimeout(() => {
+      pendingPageInfoRetries.delete(tabId);
+      updatePageInfo(tabId, currentUrl, iframe, retryCount + 1);
+    }, retryDelay);
+    
+    pendingPageInfoRetries.set(tabId, timeoutId);
   }
 }
 
@@ -655,6 +664,98 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
       }
     } catch (e) {
       console.log("Error tracking Scramjet navigation:", e);
+    }
+  });
+  
+  // Setup a MutationObserver to watch for dynamic title/favicon changes in the iframe
+  // This handles SPAs and pages that update title/favicon after initial load
+  scramjetFrame.addEventListener("load", function() {
+    try {
+      const iframe = scramjetFrame.frame;
+      if (!iframe || !iframe.contentDocument) return;
+      
+      // Disconnect any existing observers for this tab to prevent memory leaks
+      if (tabObservers.has(tabId)) {
+        const oldObservers = tabObservers.get(tabId);
+        oldObservers.forEach(observer => {
+          try { observer.disconnect(); } catch (e) { /* ignore */ }
+        });
+      }
+      
+      const observers = [];
+      const iframeDoc = iframe.contentDocument;
+      
+      // Watch for title changes
+      const titleObserver = new MutationObserver(() => {
+        // Debounce updates - wait a bit for multiple rapid changes
+        if (pendingPageInfoRetries.has(tabId)) {
+          clearTimeout(pendingPageInfoRetries.get(tabId));
+        }
+        const timeoutId = setTimeout(() => {
+          pendingPageInfoRetries.delete(tabId);
+          const currentUrl = scramjetFrame.url || lastKnownUrl;
+          updatePageInfo(tabId, currentUrl, iframe);
+        }, 100);
+        pendingPageInfoRetries.set(tabId, timeoutId);
+      });
+      
+      // Observe the title element for changes
+      const titleElement = iframeDoc.querySelector('title');
+      if (titleElement) {
+        titleObserver.observe(titleElement, { 
+          childList: true, 
+          characterData: true, 
+          subtree: true 
+        });
+        observers.push(titleObserver);
+      }
+      
+      // Also observe head for new link elements (favicon changes)
+      const headElement = iframeDoc.querySelector('head');
+      if (headElement) {
+        const headObserver = new MutationObserver((mutations) => {
+          // Check if any favicon-related links were added or changed
+          const faviconChanged = mutations.some(mutation => {
+            if (mutation.type === 'childList') {
+              for (const node of mutation.addedNodes) {
+                // Safely check for favicon link elements
+                if (node.nodeName === 'LINK' && 
+                    node.rel && 
+                    typeof node.rel === 'string' && 
+                    node.rel.toLowerCase().includes('icon')) {
+                  return true;
+                }
+              }
+            }
+            return false;
+          });
+          
+          if (faviconChanged) {
+            // Debounce favicon updates
+            if (pendingPageInfoRetries.has(tabId)) {
+              clearTimeout(pendingPageInfoRetries.get(tabId));
+            }
+            const timeoutId = setTimeout(() => {
+              pendingPageInfoRetries.delete(tabId);
+              const currentUrl = scramjetFrame.url || lastKnownUrl;
+              updatePageInfo(tabId, currentUrl, iframe);
+            }, 100);
+            pendingPageInfoRetries.set(tabId, timeoutId);
+          }
+        });
+        
+        headObserver.observe(headElement, { 
+          childList: true, 
+          subtree: true 
+        });
+        observers.push(headObserver);
+      }
+      
+      // Store observers for cleanup later
+      tabObservers.set(tabId, observers);
+    } catch (e) {
+      // Cross-origin or other access issues - ignore silently
+      console.log("Could not set up title/favicon observer:", e.message);
     }
   });
   
