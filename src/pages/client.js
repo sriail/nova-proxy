@@ -42,28 +42,46 @@ async function ensureTransportConfigured() {
   const wispUrl = getWispUrl();
   const transportPath = getTransportPath();
   
-  // If already configured with the same URL and transport, return immediately
-  if (transportConfigured && lastWispUrl === wispUrl && lastTransportPath === transportPath) {
-    return;
-  }
-  
   // If there's an ongoing configuration, wait for it
   if (transportConfigPromise) {
     await transportConfigPromise;
-    return;
+    // After waiting, check if it matches what we need
+    if (lastWispUrl === wispUrl && lastTransportPath === transportPath) {
+      return;
+    }
   }
   
   // Start configuration
   transportConfigPromise = (async () => {
     try {
+      // Always verify transport is correctly set
+      // This fixes issues where transport state gets out of sync between tabs
       const currentTransport = await connection.getTransport();
-      if (currentTransport !== transportPath || lastWispUrl !== wispUrl) {
+      const needsUpdate = currentTransport !== transportPath || 
+                          lastWispUrl !== wispUrl || 
+                          !transportConfigured;
+      
+      if (needsUpdate) {
+        console.log("Nova: Configuring transport", transportPath, "with wisp URL", wispUrl);
         // Use 'websocket' parameter for libcurl, 'wisp' for epoxy
         if (transportPath === LIBCURL_TRANSPORT_PATH) {
-          await connection.setTransport(transportPath, [{ websocket: wispUrl }]);
+          // Configure libcurl with optimized settings for WebSocket connections
+          // These settings improve compatibility with WebSocket-heavy sites like games
+          await connection.setTransport(transportPath, [{ 
+            websocket: wispUrl,
+            // Explicitly set wisp transport mode for multiplexed WebSocket connections
+            // This ensures proper handling of concurrent connections for games/real-time apps
+            transport: "wisp",
+            // Connection pool limits: [max_active, cache_limit, max_per_host]
+            // - max_active (50): Maximum concurrent active connections
+            // - cache_limit (30): Maximum cached/idle connections
+            // - max_per_host (10): Maximum connections per host (helps with WSS-heavy sites)
+            connections: [50, 30, 10]
+          }]);
         } else {
           await connection.setTransport(transportPath, [{ wisp: wispUrl }]);
         }
+        console.log("Nova: Transport configured successfully");
       }
       transportConfigured = true;
       lastWispUrl = wispUrl;
@@ -1747,6 +1765,12 @@ document.addEventListener("DOMContentLoaded", () => {
   setupWindowOpenInjection();
   setupAdBlocker();
   setupVerificationSupport();
+  
+  // Pre-configure transport early to ensure consistency across tabs
+  // This runs before any proxy loads to prevent transport mismatches
+  ensureTransportConfigured().catch(err => {
+    console.warn("Nova: Early transport configuration failed, will retry on first proxy load:", err);
+  });
 
   const urlInput = document.getElementById("url-input");
 
