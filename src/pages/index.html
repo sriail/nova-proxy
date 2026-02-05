@@ -306,6 +306,37 @@
         gap: 0.25rem;
         position: relative;
       }
+      /* Fullscreen styles */
+      body.fullscreen-mode {
+        overflow: hidden;
+      }
+      body.fullscreen-mode .tab-bar,
+      body.fullscreen-mode .upper-nav {
+        position: fixed;
+        transform: translateY(-100%);
+        transition: transform 0.3s ease-in-out;
+        z-index: 2000;
+      }
+      body.fullscreen-mode .tab-bar.nav-visible,
+      body.fullscreen-mode .upper-nav.nav-visible {
+        transform: translateY(0);
+      }
+      body.fullscreen-mode .upper-nav {
+        top: var(--tab-bar-height);
+      }
+      body.fullscreen-mode .container {
+        padding: 0;
+      }
+      body.fullscreen-mode .tab-iframe,
+      body.fullscreen-mode #proxy-frame {
+        height: 100vh !important;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1000;
+      }
       .dropdown-container {
         position: relative;
       }
@@ -666,6 +697,16 @@
         <input type="text" id="nav-url-input" placeholder="Search or enter URL..." />
       </div>
       <div class="nav-right">
+        <!-- Fullscreen Button -->
+        <button class="nav-btn" id="nav-fullscreen" title="Toggle Fullscreen" onclick="toggleFullscreen()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M4 8v-2a2 2 0 0 1 2 -2h2"/>
+            <path d="M4 16v2a2 2 0 0 0 2 2h2"/>
+            <path d="M16 4h2a2 2 0 0 1 2 2v2"/>
+            <path d="M16 20h2a2 2 0 0 0 2 -2v-2"/>
+          </svg>
+        </button>
         <!-- Settings Button -->
         <button class="nav-btn" id="nav-settings" title="Settings" onclick="goToSettings()">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -1695,6 +1736,115 @@
       
       // Initialize tabs after DOM is ready
       initTabs();
+
+      // ==========================================
+      // FULLSCREEN FUNCTIONALITY
+      // ==========================================
+      
+      let isFullscreenMode = false;
+      let navHideTimeout = null;
+      
+      function toggleFullscreen() {
+        isFullscreenMode = !isFullscreenMode;
+        
+        if (isFullscreenMode) {
+          enterFullscreenMode();
+        } else {
+          exitFullscreenMode();
+        }
+      }
+      
+      function enterFullscreenMode() {
+        document.body.classList.add('fullscreen-mode');
+        
+        // Update button icon to exit fullscreen icon
+        const fullscreenBtn = document.getElementById('nav-fullscreen');
+        if (fullscreenBtn) {
+          fullscreenBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M8 8v-2a2 2 0 0 1 2 -2h2"/>
+            <path d="M8 16v2a2 2 0 0 0 2 2h2"/>
+            <path d="M16 8v-2a2 2 0 0 0 -2 -2h-2"/>
+            <path d="M16 16v2a2 2 0 0 1 -2 2h-2"/>
+          </svg>`;
+          fullscreenBtn.title = 'Exit Fullscreen';
+        }
+        
+        // Setup mouse move listener for navbar reveal
+        document.addEventListener('mousemove', handleMouseMoveInFullscreen);
+        
+        // Hide navbar initially after a short delay
+        setTimeout(() => {
+          hideNavbar();
+        }, 1000);
+      }
+      
+      function exitFullscreenMode() {
+        document.body.classList.remove('fullscreen-mode');
+        
+        // Update button icon back to fullscreen icon
+        const fullscreenBtn = document.getElementById('nav-fullscreen');
+        if (fullscreenBtn) {
+          fullscreenBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M4 8v-2a2 2 0 0 1 2 -2h2"/>
+            <path d="M4 16v2a2 2 0 0 0 2 2h2"/>
+            <path d="M16 4h2a2 2 0 0 1 2 2v2"/>
+            <path d="M16 20h2a2 2 0 0 0 2 -2v-2"/>
+          </svg>`;
+          fullscreenBtn.title = 'Toggle Fullscreen';
+        }
+        
+        // Remove mouse move listener
+        document.removeEventListener('mousemove', handleMouseMoveInFullscreen);
+        
+        // Show navbar
+        showNavbar();
+      }
+      
+      function handleMouseMoveInFullscreen(e) {
+        // Show navbar when mouse is near the top (within 50px)
+        if (e.clientY <= 50) {
+          showNavbar();
+          
+          // Auto-hide after 3 seconds of no interaction
+          clearTimeout(navHideTimeout);
+          navHideTimeout = setTimeout(() => {
+            hideNavbar();
+          }, 3000);
+        } else if (e.clientY > 150) {
+          // Hide navbar when mouse moves away from top
+          clearTimeout(navHideTimeout);
+          hideNavbar();
+        }
+      }
+      
+      function showNavbar() {
+        const tabBar = document.getElementById('tab-bar');
+        const upperNav = document.querySelector('.upper-nav');
+        
+        if (tabBar) tabBar.classList.add('nav-visible');
+        if (upperNav) upperNav.classList.add('nav-visible');
+      }
+      
+      function hideNavbar() {
+        const tabBar = document.getElementById('tab-bar');
+        const upperNav = document.querySelector('.upper-nav');
+        
+        if (tabBar) tabBar.classList.remove('nav-visible');
+        if (upperNav) upperNav.classList.remove('nav-visible');
+      }
+      
+      // Exit fullscreen mode on ESC key
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isFullscreenMode) {
+          isFullscreenMode = false;
+          exitFullscreenMode();
+        }
+      });
+      
+      // Make toggleFullscreen available globally
+      window.toggleFullscreen = toggleFullscreen;
     </script>
   </body>
 </html>
