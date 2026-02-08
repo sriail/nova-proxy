@@ -22,6 +22,12 @@ let lastWispUrl = null;
 let lastTransportPath = null;
 let transportConfigPromise = null;
 
+// Track when transport was last configured for staleness detection
+let lastTransportConfigTime = 0;
+
+// Maximum age of transport configuration before forcing refresh (5 minutes)
+const TRANSPORT_MAX_AGE_MS = 5 * 60 * 1000;
+
 // Get the appropriate transport path based on settings
 function getTransportPath() {
   const settings = getSettings();
@@ -39,7 +45,8 @@ function getTransportPath() {
 
 // Shared function to configure transport (with deduplication)
 // forceRefresh: when true, always reconfigures the transport even if cached
-async function ensureTransportConfigured(forceRefresh = false) {
+// maxRetries: number of times to retry on failure (default 3)
+async function ensureTransportConfigured(forceRefresh = false, maxRetries = 3) {
   const wispUrl = getWispUrl();
   const transportPath = getTransportPath();
   
@@ -54,32 +61,65 @@ async function ensureTransportConfigured(forceRefresh = false) {
     return;
   }
   
-  // Start configuration
+  // Start configuration with retry logic
   transportConfigPromise = (async () => {
-    try {
-      // Always set the transport to ensure connection is fresh
-      // Use 'websocket' parameter for libcurl, 'wisp' for epoxy
-      if (transportPath === LIBCURL_TRANSPORT_PATH) {
-        await connection.setTransport(transportPath, [{ websocket: wispUrl }]);
-      } else {
-        await connection.setTransport(transportPath, [{ wisp: wispUrl }]);
+    let lastError = null;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        // Log retry attempts for debugging
+        if (attempt > 0) {
+          console.log(`Transport configuration retry attempt ${attempt + 1}/${maxRetries}`);
+          // Wait a bit before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
+          await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt - 1)));
+        }
+        
+        // Always set the transport to ensure connection is fresh
+        // Use 'websocket' parameter for libcurl, 'wisp' for epoxy
+        if (transportPath === LIBCURL_TRANSPORT_PATH) {
+          await connection.setTransport(transportPath, [{ websocket: wispUrl }]);
+        } else {
+          await connection.setTransport(transportPath, [{ wisp: wispUrl }]);
+        }
+        
+        transportConfigured = true;
+        lastWispUrl = wispUrl;
+        lastTransportPath = transportPath;
+        lastTransportConfigTime = Date.now();
+        
+        if (attempt > 0) {
+          console.log(`Transport configured successfully after ${attempt + 1} attempts`);
+        }
+        return; // Success, exit the retry loop
+        
+      } catch (error) {
+        lastError = error;
+        console.error(`Transport configuration attempt ${attempt + 1}/${maxRetries} failed:`, error);
+        
+        // Reset the cached state so it will retry
+        transportConfigured = false;
+        lastWispUrl = null;
+        lastTransportPath = null;
       }
-      transportConfigured = true;
-      lastWispUrl = wispUrl;
-      lastTransportPath = transportPath;
-    } catch (error) {
-      console.error("Failed to configure transport:", error);
-      // Reset the cached state so it will retry next time
-      transportConfigured = false;
-      lastWispUrl = null;
-      lastTransportPath = null;
-      throw error;
-    } finally {
-      transportConfigPromise = null;
     }
+    
+    // All retries failed
+    console.error("All transport configuration attempts failed");
+    throw lastError;
   })();
   
-  await transportConfigPromise;
+  try {
+    await transportConfigPromise;
+  } finally {
+    transportConfigPromise = null;
+  }
+}
+
+// Check if transport configuration is stale and needs refresh
+function isTransportStale() {
+  if (!transportConfigured) return true;
+  if (Date.now() - lastTransportConfigTime > TRANSPORT_MAX_AGE_MS) return true;
+  return false;
 }
 
 // Reset transport configuration to force reconfiguration on next request
@@ -90,10 +130,55 @@ function resetTransportConfiguration() {
   lastWispUrl = null;
   lastTransportPath = null;
   transportConfigPromise = null;
+  lastTransportConfigTime = 0;
+}
+
+// Periodic transport health check (refreshes stale connections)
+// This helps prevent libcurl disconnects by keeping the connection fresh
+let transportHealthCheckInterval = null;
+
+function startTransportHealthCheck() {
+  // Don't start multiple intervals
+  if (transportHealthCheckInterval) return;
+  
+  // Check every 2 minutes
+  transportHealthCheckInterval = setInterval(() => {
+    // Only refresh if we have a configured transport that's stale
+    if (transportConfigured && isTransportStale()) {
+      console.log("Transport connection is stale, refreshing...");
+      ensureTransportConfigured(true).catch(err => {
+        console.error("Background transport refresh failed:", err);
+      });
+    }
+  }, 2 * 60 * 1000);
+}
+
+// Start health check when page loads
+if (typeof window !== 'undefined') {
+  window.addEventListener('load', startTransportHealthCheck);
 }
 
 // Expose reset function globally for settings page to use
 window.resetTransportConfiguration = resetTransportConfiguration;
+
+// Helper function to configure transport with robust retry and recovery
+// This handles the common pattern of retrying with fresh reset on failure
+async function configureTransportWithRecovery() {
+  try {
+    // Force refresh and use 3 retries for better reliability
+    await ensureTransportConfigured(true, 3);
+  } catch (transportErr) {
+    console.error("Transport configuration failed after retries:", transportErr);
+    // Try one more time with a fresh reset
+    resetTransportConfiguration();
+    try {
+      await ensureTransportConfigured(true, 2);
+    } catch (finalErr) {
+      alert("Failed to configure transport. Please refresh the page and try again.");
+      throw finalErr;
+    }
+  }
+}
 
 // Get settings from localStorage
 function getSettings() {
@@ -1212,14 +1297,8 @@ async function loadProxiedUrlScramjet(url, tabId) {
   }
 
   // Set up transport with Wisp - force refresh to ensure fresh connection for each navigation
-  // This fixes issues with libcurl transport dropping connections after first navigation
-  try {
-    await ensureTransportConfigured(true);
-  } catch (transportErr) {
-    console.error("Transport configuration failed:", transportErr);
-    alert("Failed to configure transport: " + transportErr.message);
-    throw transportErr;
-  }
+  // Uses retry logic to handle libcurl disconnects and reconnection issues
+  await configureTransportWithRecovery();
 
   const container = document.getElementById("container");
   
@@ -1289,13 +1368,8 @@ async function loadProxiedUrlUltraviolet(url, tabId) {
   }
 
   // Set up transport with Wisp - force refresh to ensure fresh connection for each navigation
-  try {
-    await ensureTransportConfigured(true);
-  } catch (transportErr) {
-    console.error("Transport configuration failed:", transportErr);
-    alert("Failed to configure transport: " + transportErr.message);
-    throw transportErr;
-  }
+  // Uses retry logic to handle transport disconnects and reconnection issues
+  await configureTransportWithRecovery();
 
   try {
     await registerUltravioletSW();
