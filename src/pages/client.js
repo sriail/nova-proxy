@@ -22,6 +22,12 @@ let lastWispUrl = null;
 let lastTransportPath = null;
 let transportConfigPromise = null;
 
+// Track when transport was last configured for staleness detection
+let lastTransportConfigTime = 0;
+
+// Maximum age of transport configuration before forcing refresh (5 minutes)
+const TRANSPORT_MAX_AGE_MS = 5 * 60 * 1000;
+
 // Get the appropriate transport path based on settings
 function getTransportPath() {
   const settings = getSettings();
@@ -38,12 +44,14 @@ function getTransportPath() {
 }
 
 // Shared function to configure transport (with deduplication)
-async function ensureTransportConfigured() {
+// forceRefresh: when true, always reconfigures the transport even if cached
+// maxRetries: number of times to retry on failure (default 3)
+async function ensureTransportConfigured(forceRefresh = false, maxRetries = 3) {
   const wispUrl = getWispUrl();
   const transportPath = getTransportPath();
   
-  // If already configured with the same URL and transport, return immediately
-  if (transportConfigured && lastWispUrl === wispUrl && lastTransportPath === transportPath) {
+  // If already configured with the same URL and transport, and not forcing refresh, return immediately
+  if (!forceRefresh && transportConfigured && lastWispUrl === wispUrl && lastTransportPath === transportPath) {
     return;
   }
   
@@ -53,27 +61,123 @@ async function ensureTransportConfigured() {
     return;
   }
   
-  // Start configuration
+  // Start configuration with retry logic
   transportConfigPromise = (async () => {
-    try {
-      const currentTransport = await connection.getTransport();
-      if (currentTransport !== transportPath || lastWispUrl !== wispUrl) {
+    let lastError = null;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        // Log retry attempts for debugging
+        if (attempt > 0) {
+          console.log(`Transport configuration retry attempt ${attempt + 1}/${maxRetries}`);
+          // Wait a bit before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
+          await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt - 1)));
+        }
+        
+        // Always set the transport to ensure connection is fresh
         // Use 'websocket' parameter for libcurl, 'wisp' for epoxy
         if (transportPath === LIBCURL_TRANSPORT_PATH) {
           await connection.setTransport(transportPath, [{ websocket: wispUrl }]);
         } else {
           await connection.setTransport(transportPath, [{ wisp: wispUrl }]);
         }
+        
+        transportConfigured = true;
+        lastWispUrl = wispUrl;
+        lastTransportPath = transportPath;
+        lastTransportConfigTime = Date.now();
+        
+        if (attempt > 0) {
+          console.log(`Transport configured successfully after ${attempt + 1} attempts`);
+        }
+        return; // Success, exit the retry loop
+        
+      } catch (error) {
+        lastError = error;
+        console.error(`Transport configuration attempt ${attempt + 1}/${maxRetries} failed:`, error);
+        
+        // Reset the cached state so it will retry
+        transportConfigured = false;
+        lastWispUrl = null;
+        lastTransportPath = null;
       }
-      transportConfigured = true;
-      lastWispUrl = wispUrl;
-      lastTransportPath = transportPath;
-    } finally {
-      transportConfigPromise = null;
     }
+    
+    // All retries failed
+    console.error("All transport configuration attempts failed");
+    throw lastError;
   })();
   
-  await transportConfigPromise;
+  try {
+    await transportConfigPromise;
+  } finally {
+    transportConfigPromise = null;
+  }
+}
+
+// Check if transport configuration is stale and needs refresh
+function isTransportStale() {
+  if (!transportConfigured) return true;
+  if (Date.now() - lastTransportConfigTime > TRANSPORT_MAX_AGE_MS) return true;
+  return false;
+}
+
+// Reset transport configuration to force reconfiguration on next request
+// This is useful when the transport connection fails or needs to be refreshed
+// Exposed for external callers or future use by the settings page
+function resetTransportConfiguration() {
+  transportConfigured = false;
+  lastWispUrl = null;
+  lastTransportPath = null;
+  transportConfigPromise = null;
+  lastTransportConfigTime = 0;
+}
+
+// Periodic transport health check (refreshes stale connections)
+// This helps prevent libcurl disconnects by keeping the connection fresh
+let transportHealthCheckInterval = null;
+
+function startTransportHealthCheck() {
+  // Don't start multiple intervals
+  if (transportHealthCheckInterval) return;
+  
+  // Check every 2 minutes
+  transportHealthCheckInterval = setInterval(() => {
+    // Only refresh if we have a configured transport that's stale
+    if (transportConfigured && isTransportStale()) {
+      console.log("Transport connection is stale, refreshing...");
+      ensureTransportConfigured(true).catch(err => {
+        console.error("Background transport refresh failed:", err);
+      });
+    }
+  }, 2 * 60 * 1000);
+}
+
+// Start health check when page loads
+if (typeof window !== 'undefined') {
+  window.addEventListener('load', startTransportHealthCheck);
+}
+
+// Expose reset function globally for settings page to use
+window.resetTransportConfiguration = resetTransportConfiguration;
+
+// Helper function to configure transport with robust retry and recovery
+// This handles the common pattern of retrying with fresh reset on failure
+async function configureTransportWithRecovery() {
+  try {
+    // Force refresh and use 3 retries for better reliability
+    await ensureTransportConfigured(true, 3);
+  } catch (transportErr) {
+    console.error("Transport configuration failed after retries:", transportErr);
+    // Try one more time with a fresh reset
+    resetTransportConfiguration();
+    try {
+      await ensureTransportConfigured(true, 2);
+    } catch (finalErr) {
+      alert("Failed to configure transport. Please refresh the page and try again.");
+      throw finalErr;
+    }
+  }
 }
 
 // Get settings from localStorage
@@ -289,7 +393,30 @@ function getIframeLocationUrl(iframe) {
 // Cache for favicon data URLs to avoid repeated fetches
 const faviconCache = new Map();
 
+// Check if a URL is safe to fetch (same-origin or valid proxy path)
+// Returns true for data URLs, same-origin URLs, and relative proxy paths
+function isSafeFaviconUrl(url) {
+  if (!url) return false;
+  
+  // Data URLs are always safe
+  if (url.startsWith('data:')) return true;
+  
+  // Relative proxy paths are safe
+  if (url.startsWith(SCRAMJET_PREFIX) || url.startsWith('/scramjet/') || url.startsWith(UV_PREFIX)) {
+    return true;
+  }
+  
+  // Check if it's a same-origin URL
+  try {
+    const urlObj = new URL(url, location.origin);
+    return urlObj.origin === location.origin;
+  } catch (e) {
+    return false;
+  }
+}
+
 // Fetch favicon through proxy and convert to data URL
+// Only fetches same-origin URLs (proxied URLs) or data URLs
 async function fetchFaviconAsDataUrl(faviconUrl) {
   if (!faviconUrl) return null;
   
@@ -298,8 +425,19 @@ async function fetchFaviconAsDataUrl(faviconUrl) {
     return faviconCache.get(faviconUrl);
   }
   
+  // If it's already a data URL, return it directly
+  if (faviconUrl.startsWith('data:')) {
+    return faviconUrl;
+  }
+  
+  // Safety check: NEVER fetch external URLs directly (CORS will fail)
+  if (!isSafeFaviconUrl(faviconUrl)) {
+    console.log("Skipping unsafe favicon URL (CORS):", faviconUrl);
+    return null;
+  }
+  
   try {
-    // First try with no-cors mode (for same-origin proxy URLs)
+    // Fetch the proxied URL (same-origin, no CORS issues)
     let response;
     try {
       response = await fetch(faviconUrl, {
@@ -434,11 +572,27 @@ function extractPageInfo(iframe, currentUrl) {
         const rel = (link.getAttribute('rel') || '').toLowerCase();
         // Check for various icon rel values
         if (rel.includes('icon')) {
-          // Use the resolved href property directly - it's already a valid URL
-          // that the browser can access (either proxied or absolute)
           if (link.href) {
-            faviconUrl = link.href;
-            break;
+            // Check if the favicon URL is already a proxied URL (same origin)
+            try {
+              const faviconUrlObj = new URL(link.href);
+              if (faviconUrlObj.origin === location.origin) {
+                // Same origin URL (already proxied) - use directly
+                faviconUrl = link.href;
+              } else {
+                // External URL - needs to be proxied
+                const proxiedUrl = encodeProxyUrl(link.href);
+                if (proxiedUrl) {
+                  faviconUrl = proxiedUrl;
+                }
+              }
+            } catch (e) {
+              // Invalid URL or relative path - try to use as-is if it looks like a proxy path
+              if (link.href.startsWith(SCRAMJET_PREFIX) || link.href.startsWith('/scramjet/') || link.href.startsWith(UV_PREFIX)) {
+                faviconUrl = link.href;
+              }
+            }
+            if (faviconUrl) break;
           }
         }
       }
@@ -466,19 +620,24 @@ function extractPageInfo(iframe, currentUrl) {
 }
 
 // Delay in milliseconds to wait for page content to be ready after navigation
-const PAGE_INFO_DELAY_MS = 250;
+// Slightly increased from 250ms to allow more time for dynamic content to load
+const PAGE_INFO_DELAY_MS = 300;
 
-// Retry delay for favicon extraction if not found on first attempt
-const FAVICON_RETRY_DELAY_MS = 500;
+// Retry delay for favicon/title extraction if not found on first attempt
+// Uses exponential backoff: 500ms, 1000ms, 2000ms, 4000ms
+const FAVICON_RETRY_BASE_DELAY_MS = 500;
 
-// Maximum number of retries for favicon extraction
-const MAX_FAVICON_RETRIES = 2;
+// Maximum number of retries for favicon/title extraction (increased for reliability)
+const MAX_FAVICON_RETRIES = 4;
 
 // Delay for navigation event handlers to allow URL to update
 const NAVIGATION_CHECK_DELAY_MS = 50;
 
-// Track pending favicon retries to prevent overlapping attempts
-const pendingFaviconRetries = new Map();
+// Track pending retries to prevent overlapping attempts
+const pendingPageInfoRetries = new Map();
+
+// Track MutationObservers per tab to prevent memory leaks
+const tabObservers = new Map();
 
 // Update tab and URL bar with current page info
 async function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
@@ -492,9 +651,12 @@ async function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
     }
   }
   
+  // Track what we successfully extracted
+  let gotTitle = !!pageTitle;
+  let gotFavicon = false;
+  
   // Update tab info if tab system is available
   if (tabId !== undefined && typeof window.updateTabInfo === "function") {
-    // Only update title if we have one
     const updateData = {
       url: currentUrl || undefined
     };
@@ -505,34 +667,43 @@ async function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
     
     // If we found a favicon URL, try to fetch it and convert to data URL
     if (favicon) {
-      // Clear any pending retry since we found a favicon
-      if (pendingFaviconRetries.has(tabId)) {
-        clearTimeout(pendingFaviconRetries.get(tabId));
-        pendingFaviconRetries.delete(tabId);
-      }
-      
       // Try to fetch the favicon as a data URL for better reliability
       const dataUrl = await fetchFaviconAsDataUrl(favicon);
-      updateData.favicon = dataUrl || favicon;
+      // Only use favicon as fallback if it's a safe URL (same-origin or data URL)
+      // Never use external URLs directly as they will fail with CORS
+      if (dataUrl) {
+        updateData.favicon = dataUrl;
+        gotFavicon = true;
+      } else if (isSafeFaviconUrl(favicon)) {
+        // Safe URL (same-origin or data URL) - can use directly
+        updateData.favicon = favicon;
+        gotFavicon = true;
+      }
+      // External URLs are NOT set - they would cause CORS errors
     }
     
     window.updateTabInfo(tabId, updateData);
   }
   
-  // If no favicon found and we haven't retried too many times, try again
-  // Some pages load favicons dynamically
-  if (!favicon && retryCount < MAX_FAVICON_RETRIES && tabId !== undefined) {
+  // Retry if we're missing title OR favicon and haven't retried too many times
+  // Some pages load title/favicon dynamically after initial page load
+  const needsRetry = (!gotTitle || !gotFavicon) && retryCount < MAX_FAVICON_RETRIES && tabId !== undefined;
+  
+  if (needsRetry) {
     // Clear any existing retry for this tab to prevent overlapping
-    if (pendingFaviconRetries.has(tabId)) {
-      clearTimeout(pendingFaviconRetries.get(tabId));
+    if (pendingPageInfoRetries.has(tabId)) {
+      clearTimeout(pendingPageInfoRetries.get(tabId));
     }
     
-    const timeoutId = setTimeout(() => {
-      pendingFaviconRetries.delete(tabId);
-      updatePageInfo(tabId, currentUrl, iframe, retryCount + 1);
-    }, FAVICON_RETRY_DELAY_MS);
+    // Use exponential backoff for retries: 500ms, 1000ms, 2000ms, 4000ms
+    const retryDelay = FAVICON_RETRY_BASE_DELAY_MS * Math.pow(2, retryCount);
     
-    pendingFaviconRetries.set(tabId, timeoutId);
+    const timeoutId = setTimeout(() => {
+      pendingPageInfoRetries.delete(tabId);
+      updatePageInfo(tabId, currentUrl, iframe, retryCount + 1);
+    }, retryDelay);
+    
+    pendingPageInfoRetries.set(tabId, timeoutId);
   }
 }
 
@@ -578,6 +749,98 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
       }
     } catch (e) {
       console.log("Error tracking Scramjet navigation:", e);
+    }
+  });
+  
+  // Setup a MutationObserver to watch for dynamic title/favicon changes in the iframe
+  // This handles SPAs and pages that update title/favicon after initial load
+  scramjetFrame.addEventListener("load", function() {
+    try {
+      const iframe = scramjetFrame.frame;
+      if (!iframe || !iframe.contentDocument) return;
+      
+      // Disconnect any existing observers for this tab to prevent memory leaks
+      if (tabObservers.has(tabId)) {
+        const oldObservers = tabObservers.get(tabId);
+        oldObservers.forEach(observer => {
+          try { observer.disconnect(); } catch (e) { /* ignore */ }
+        });
+      }
+      
+      const observers = [];
+      const iframeDoc = iframe.contentDocument;
+      
+      // Watch for title changes
+      const titleObserver = new MutationObserver(() => {
+        // Debounce updates - wait a bit for multiple rapid changes
+        if (pendingPageInfoRetries.has(tabId)) {
+          clearTimeout(pendingPageInfoRetries.get(tabId));
+        }
+        const timeoutId = setTimeout(() => {
+          pendingPageInfoRetries.delete(tabId);
+          const currentUrl = scramjetFrame.url || lastKnownUrl;
+          updatePageInfo(tabId, currentUrl, iframe);
+        }, 100);
+        pendingPageInfoRetries.set(tabId, timeoutId);
+      });
+      
+      // Observe the title element for changes
+      const titleElement = iframeDoc.querySelector('title');
+      if (titleElement) {
+        titleObserver.observe(titleElement, { 
+          childList: true, 
+          characterData: true, 
+          subtree: true 
+        });
+        observers.push(titleObserver);
+      }
+      
+      // Also observe head for new link elements (favicon changes)
+      const headElement = iframeDoc.querySelector('head');
+      if (headElement) {
+        const headObserver = new MutationObserver((mutations) => {
+          // Check if any favicon-related links were added or changed
+          const faviconChanged = mutations.some(mutation => {
+            if (mutation.type === 'childList') {
+              for (const node of mutation.addedNodes) {
+                // Safely check for favicon link elements
+                if (node.nodeName === 'LINK' && 
+                    node.rel && 
+                    typeof node.rel === 'string' && 
+                    node.rel.toLowerCase().includes('icon')) {
+                  return true;
+                }
+              }
+            }
+            return false;
+          });
+          
+          if (faviconChanged) {
+            // Debounce favicon updates
+            if (pendingPageInfoRetries.has(tabId)) {
+              clearTimeout(pendingPageInfoRetries.get(tabId));
+            }
+            const timeoutId = setTimeout(() => {
+              pendingPageInfoRetries.delete(tabId);
+              const currentUrl = scramjetFrame.url || lastKnownUrl;
+              updatePageInfo(tabId, currentUrl, iframe);
+            }, 100);
+            pendingPageInfoRetries.set(tabId, timeoutId);
+          }
+        });
+        
+        headObserver.observe(headElement, { 
+          childList: true, 
+          subtree: true 
+        });
+        observers.push(headObserver);
+      }
+      
+      // Store observers for cleanup later
+      tabObservers.set(tabId, observers);
+    } catch (e) {
+      // Cross-origin or other access issues - ignore silently
+      console.log("Could not set up title/favicon observer:", e.message);
     }
   });
   
@@ -1033,8 +1296,9 @@ async function loadProxiedUrlScramjet(url, tabId) {
     throw err;
   }
 
-  // Set up epoxy transport with Wisp (use shared function for caching and deduplication)
-  await ensureTransportConfigured();
+  // Set up transport with Wisp - force refresh to ensure fresh connection for each navigation
+  // Uses retry logic to handle libcurl disconnects and reconnection issues
+  await configureTransportWithRecovery();
 
   const container = document.getElementById("container");
   
@@ -1103,8 +1367,9 @@ async function loadProxiedUrlUltraviolet(url, tabId) {
     throw new Error("Ultraviolet configuration not available");
   }
 
-  // Set up epoxy transport with Wisp (use shared function for caching and deduplication)
-  await ensureTransportConfigured();
+  // Set up transport with Wisp - force refresh to ensure fresh connection for each navigation
+  // Uses retry logic to handle transport disconnects and reconnection issues
+  await configureTransportWithRecovery();
 
   try {
     await registerUltravioletSW();
